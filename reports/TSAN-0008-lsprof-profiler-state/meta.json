@@ -21,7 +21,7 @@
   "repro": "repro.py",
   "repro_reliability": "a profiler-teardown-vs-callback race is found on essentially every run (exit 66); the exact flush_unmatched:866 read-site face appears in a large fraction of runs (paired with the enter-side writer initContext:314). A reproducible use-after-free SEGV (initContext->call_timer->CallExternalTimer on a freed profiler) also occurs. The seeded leave-side writer ptrace_leave_call:416 was NOT re-captured (requires dealloc-while-enabled via an FT borrowed-ref window in monitoring dispatch); see notes.",
   "suggested_fix": "Make profiler_dealloc unhook the global monitoring events / unregister callbacks BEFORE freeing internal state, and run flush_unmatched/clearEntries under the object's critical section (as disable() already does) so no callback can be dispatched into the object during teardown; also keep the dispatched tool callback alive across the call to close the borrowed-reference UAF window. Longer term, treat currentProfilerContext/profilerEntries as shared state under the global-tool model (thread-local stack, uniform locking, or single-thread enforcement).",
-  "status": "confirmed",
+  "status": "known-area-residual",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
@@ -32,9 +32,26 @@
   "notes": "cProfile moved to profiling.tracing (Profile == _lsprof.Profiler) and uses sys.monitoring with a single global tool id (2), so enabling one profiler makes ALL threads fire its callbacks into one shared instance. The callbacks + enable/disable/clear are @critical_section; the actionable gap is that profiler_dealloc runs flush_unmatched()+clearEntries() unguarded and without clearing the global monitoring events (it only calls _PyEval_SetProfile on the current thread). Confirmed capture: flush_unmatched:866 (read of currentProfilerContext, profiler_dealloc:984) races initContext:314 (write, _pystart_callback) on the same 8-byte field, plus a use-after-free SEGV. The seeded partner ptrace_leave_call:416 is the leave-side writer of the SAME field; it short-circuits at :409 on an empty context, so it only writes when the profiler is torn down while still enabled with a live non-empty stack (the fleet hit that via exception-traceback teardown during an import). That state needs an FT refcount/borrowed-ref race in monitoring dispatch and was not deterministically forcible from Python in ~200+ trials; the bug class and the flush_unmatched read site are confirmed, the exact leave-side partner frame is not.",
   "related_issues": [
     {
+      "num": 125165,
+      "note": "'cProfile hangs/segfaults with 3.13t' \u2014 closed NOT_PLANNED; colesbury: _lsprof not thread-safe w/o GIL, per-profiler locks 'won't be efficient'"
+    },
+    {
+      "num": 126884,
+      "note": "devdanzin: 'cProfile.runctx in threads segfaults' \u2014 closed NOT_PLANNED, dup of #125165"
+    },
+    {
+      "num": 116738,
+      "note": "'Audit all built-in modules for thread safety' \u2014 the umbrella that drove the cProfile fix"
+    },
+    {
+      "num": 138229,
+      "note": "MERGED 'Make cProfile module thread-safe': added @critical_section to enable/disable/clear/callbacks \u2014 but NOT profiler_dealloc teardown, which our race hits"
+    },
+    {
       "num": 143545,
-      "note": "lsprof UAF via re-entrant external timer __index__ \u2014 SINGLE-THREAD re-entrancy, different mechanism from this concurrent teardown race"
+      "note": "lsprof UAF via re-entrant external timer \u2014 single-thread, different mechanism"
     }
   ],
-  "assessment": "real, new (medium-high, UAF/SEGV) \u2014 distinct from the re-entrant-timer UAF"
+  "assessment": "Reproduces on CURRENT main (build heads/main:bcf98ddbc40). The cProfile FT-safety class was addressed by gh-116738/#138229 (critical sections on the profiling path); this is the residual TEARDOWN edge #138229 did not cover: profiler_dealloc->flush_unmatched/clearEntries has no critical section (tp_dealloc can't easily take one) + a borrowed-ref window in the sys.monitoring dispatch during concurrent drop. Given the maintainers' stance (#125165 NOT_PLANNED; locks 'limit usefulness'), this is a low-priority residual, NOT a standalone headline bug. At most a brief note on gh-116738/#138229 pointing out the teardown gap; not for individual filing.",
+  "disposition": "mostly-addressed-by-gh116738; teardown/borrowed-ref residual; low priority"
 }

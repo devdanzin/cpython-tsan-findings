@@ -13,7 +13,6 @@ glibc 2.43) unless noted. Found in `fusil-tsan_fleet_01` (2026-07-15).
 | **TSAN-0002** | `_zstd.ZstdCompressor`: plain store of `last_mode` (`compressor.c:679`) vs the `Py_T_INT` member descriptor's relaxed-atomic read | low (value-benign) | `FT_ATOMIC_STORE_INT_RELAXED` on the 4 `last_mode` stores | incomplete atomic conversion; member-read atomics landed, `_zstd`'s stores (new in 3.14) were missed. |
 | **TSAN-0005** | `decimal.Decimal.__hash__`: lazy hash cache `self->hash` written without atomics (`_decimal.c:5924/5925`) | low (value-benign) | relaxed atomics on `self->hash` | `hash()` looks read-only; distinct from the decimal `mpd_context_t.status` race (#149142). |
 | **TSAN-0006** | `itertools.count`: `count_repr` plain-reads `cnt` (`:3612`) while `count_next` writes it with an **atomic CAS** (`:3599`) | low (value-benign) | `_Py_atomic_load_ssize_relaxed` in `count_repr` | incomplete atomic conversion (writer hardened, reader missed). `count` not covered by #151409/#144357/#153062. |
-| **TSAN-0008** | `_lsprof`/`cProfile`: `profiler_dealloc` teardown (`flush_unmatched`) not critical-section-guarded, races/UAFs `currentProfilerContext` vs an in-flight monitoring callback | **med–high (UAF/SEGV)** | unregister monitoring events before freeing; run teardown under the object critical section | monitoring rewrite makes one `enable()` interpreter-wide, so exposure isn't opt-in. Distinct from the re-entrant-timer UAF #143545. |
 | **TSAN-0011** | `sys.addaudithook`: unlocked lazy init of `interp->audit_hooks` (`sysmodule.c:540`) vs `should_audit` (`:239`) | low–mod (can silently drop a hook) | serialize under the existing `runtime->audit_hooks.mutex`; atomics on the pointer | **security-relevant** (PEP 578). C-level hook list is already mutex-guarded — incomplete FT migration. Distinct from #152912/#152913 (exception handling). |
 
 ## Already reported upstream
@@ -28,6 +27,12 @@ glibc 2.43) unless noted. Found in `fusil-tsan_fleet_01` (2026-07-15).
 |----|------|-------------|
 | **TSAN-0003** | `_multiprocessing.SemLock` create/destroy → glibc `tsearch`/`tdelete` on the process-global `__sem_mappings` tree | **glibc/TSan false positive** — glibc serializes with its internal `__sem_mappings_lock` (an lll lock TSan can't see); confirmed by glibc-2.43 disassembly. Same class as the tzset false positive. **Suppressed** in `catalog/suppressions.txt`. |
 | **TSAN-0009** | pyexpat parser: `SetReparseDeferralEnabled()` writes `m_reparseDeferralEnabled` vs `callProcessor()` read | **expected** — bundled single-threaded libexpat; a parser is not thread-shareable by design. Catalog data point, not for individual filing. |
+
+## Known-area residual (low priority, not a headline bug)
+
+| id | what | disposition |
+|----|------|-------------|
+| **TSAN-0008** | `_lsprof`/`cProfile`: `profiler_dealloc` teardown (`flush_unmatched`/`clearEntries`) has no critical section, races/UAFs `currentProfilerContext` vs an in-flight monitoring callback during concurrent *drop* | Reproduces on **current main**, but the cProfile FT-safety class was already addressed by **gh-116738 / PR #138229** (critical sections on the *profiling* path). This is the residual **teardown** edge that fix didn't cover — `tp_dealloc` can't easily take a critical section, plus a borrowed-ref window in the `sys.monitoring` dispatch. History: #125165 (+ #126884) were closed **NOT_PLANNED** (colesbury: `_lsprof` not thread-safe w/o GIL, per-profiler locks "won't be efficient"). **Low priority; at most a note on #138229/gh-116738 about the teardown gap — not a standalone filing.** Distinct from the re-entrant-timer UAF #143545. |
 
 ## Borderline (needs a decision)
 

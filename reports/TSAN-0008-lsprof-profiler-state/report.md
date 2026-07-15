@@ -167,6 +167,29 @@ Found by ThreadSanitizer fuzzing (`fusil --tsan`), fleet 01, module `profiling.t
 
 On the exact signature: the confirmed capture pairs `flush_unmatched` (`:866`, read of `currentProfilerContext`) with the **enter-side** writer `initContext:314` (`ptrace_enter_call`/`_pystart_callback`) rather than the seeded **leave-side** writer `ptrace_leave_call:416` (`_pyreturn_callback`). Both are writers of the *same* field in the *same* race. The leave-side writer is a strictly rarer manifestation: `ptrace_leave_call` short-circuits at `:409` (`if (pContext == NULL) return;`) when the context stack is empty, so it only writes `:416` when the profiler is torn down **while still enabled with a non-empty live stack** — which needs the dealloc to happen without a preceding `disable()` (whose flush empties the stack) plus a borrowed-reference-across-callback window. That window (the fleet vehicle hit it once via exception-traceback teardown during an import) was not deterministically forcible from Python — an enabled profiler is kept alive by `sys.monitoring`'s strong references to its bound-method callbacks, so reaching "deallocated while enabled with a live return callback" depends on an FT refcount race in the monitoring dispatch. In ~200+ trials the minimal repro reliably reproduced the identical race on the identical field via the enter-side writer, plus the use-after-free SEGV, but did not re-capture the exact `ptrace_leave_call` frame. The underlying bug (unsynchronized profiler teardown racing concurrent monitoring callbacks) is confirmed; the specific partner frame differs.
 
+## Upstream status / disposition (reclassified: known-area residual, low priority)
+
+This reproduces on **current main** (build `heads/main:bcf98ddbc40`), but it lands in an area with a
+deliberate, already-resolved maintainer history — so it is **not** a clean new bug like the other
+findings:
+
+- **#125165** "cProfile hangs / segfaults with 3.13t" — closed **NOT_PLANNED**. @colesbury:
+  "`Modules/_lsprof.c` is not thread-safe without the GIL … per-profiler locks won't be efficient
+  and would limit the usefulness for profiling multithreaded programs." (**#126884**, devdanzin's
+  "cProfile.runctx in threads segfaults", was closed NOT_PLANNED as a duplicate of it.)
+- **gh-116738 / PR #138229** "Make cProfile module thread-safe" (**MERGED**) then added
+  `@critical_section` to the *profiling* path — `enable`/`disable`/`clear` and the callbacks. Our
+  build already contains it (9 critical sections present).
+
+Our race is the **teardown edge that #138229 did not cover**: `profiler_dealloc` open-codes an
+*unguarded* `flush_unmatched`/`clearEntries` (a `tp_dealloc` cannot easily take a per-object
+critical section), plus the borrowed-reference window in the `sys.monitoring` dispatch during a
+concurrent *drop*. Given the maintainers' stated position (locks "limit usefulness"; the general
+class was NOT_PLANNED before the targeted fix), this is best treated as a **low-priority residual of
+gh-116738** — at most a brief note on #138229/gh-116738 flagging the teardown gap — rather than a
+standalone filing. Kept in the catalog as a confirmed, reproduced data point.
+
 ---
 
-*Part of an upcoming umbrella issue tracking free-threading data races found by `fusil --tsan`. Not yet individually filed.*
+*Found by `fusil --tsan` (fleet 01). Reclassified as a known-area residual — see the upstream
+history above; not for individual filing.*
