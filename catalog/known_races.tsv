@@ -10,3 +10,4 @@ TSAN-0008	Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:ptrace_leave_cal
 TSAN-0009	Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:callProcessor
 TSAN-0010	Python/marshal.c:w_complex_object | Python/marshal.c:w_complex_object
 TSAN-0011	Python/sysmodule.c:should_audit | Python/sysmodule.c:sys_addaudithook_impl
+TSAN-0012	Modules/faulthandler.c:faulthandler_enable | Modules/faulthandler.c:faulthandler_is_enabled_impl

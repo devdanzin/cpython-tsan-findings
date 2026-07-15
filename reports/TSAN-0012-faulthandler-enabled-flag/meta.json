@@ -1,0 +1,17 @@
+{
+  "id": "TSAN-0012",
+  "slug": "faulthandler-enabled-flag",
+  "title": "faulthandler: is_enabled() reads the global fatal_error.enabled flag that enable()/disable() write without synchronization",
+  "signatures": [
+    "Modules/faulthandler.c:faulthandler_enable | Modules/faulthandler.c:faulthandler_is_enabled_impl"
+  ],
+  "sites": [
+    "Modules/faulthandler.c faulthandler_is_enabled_impl:686",
+    "Modules/faulthandler.c faulthandler_enable:538"
+  ],
+  "status": "reported",
+  "upstream_issue": 151363,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_01",
+  "notes": "is_enabled() (faulthandler.c:686, `return fatal_error.enabled;`) is another unsynchronized reader of the non-atomic `enabled` flag that enable() (:538) / disable() write. Same process-global _PyRuntime.faulthandler state as the already-reported enable()/disable() race (python/cpython#151363; the related watchdog lock-handshake race is #151475). Cataloged as known so fleets dedupe it rather than resurfacing it as new. Not separately filed; if filing follow-up, note is_enabled() as an additional racing accessor."
+}
