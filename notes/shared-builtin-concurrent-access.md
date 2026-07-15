@@ -1,11 +1,18 @@
-# Is a data race on a shared builtin's size (concurrent unsynchronized access) interesting?
+# Data race on a shared builtin's size / items (concurrent unsynchronized access) — RULED A BUG
+
+> **RESOLVED 2026-07-15 — this IS a bug (Thomas Wouters / Yhg1s, CPython release manager).**
+> This document and `shared_list_race.py` were sent to the maintainers verbatim; the reply was
+> **"Yes, that's a bug."** So the class below is a valid free-threading defect — the non-atomic
+> *reader* should use the atomic accessor the *writer* already uses — not "don't share it"
+> behaviour. The catalog no longer suppresses it; it is filed as **TSAN-0013** (shared-list
+> non-atomic reads vs `list_resize`), **TSAN-0014** (concurrent `list.sort()`), and **TSAN-0010**
+> (marshal reader). The original question text is kept below for context.
 
 **Short version:** on a free-threaded build, two threads that access the *same* `list` with no
 user-level lock — one reading it (e.g. tuple-unpack, which reads `Py_SIZE`), the other resizing
 it (`append`/`pop`, which stores `Py_SIZE`) — produce a ThreadSanitizer data race on the list's
-size word: an **atomic relaxed store** vs a **plain (non-atomic) read**. We'd like to know whether
-this class is considered actionable or expected "don't do that" behaviour, so we can triage it
-correctly.
+size word: an **atomic relaxed store** vs a **plain (non-atomic) read**. (We originally asked
+whether this was actionable; the answer above is yes.)
 
 ## Why we're asking
 
@@ -109,12 +116,11 @@ Two fleet-01 signatures were traced to this same class (both on a shared `list`)
   fleet did once. **Deliberately not suppressed**: held as a dev question for the umbrella issue
   (below) rather than folded into the "expected, ignore" bucket.
 
-**Questions for CPython devs:**
-1. Is the read-while-mutate class (concurrent unsynchronized *access* to a shared builtin — the
-   `_Py_SIZE` and `bytes_join` cases) considered actionable, or expected/acceptable? If the latter
-   we keep suppressing it and only report races in *internal* shared state (type caches, module
-   state, extension objects) that a correct single-object-per-thread program can still hit.
-2. Separately: is concurrent `list.sort()` on a shared list (the `binarysort | binarysort` case)
-   intended to stay crash-safe? It runs without a per-object critical section and rewrites the
-   detached array in place, so two racing sorts touch the same slots — we'd like confirmation that
-   the detach scheme is sufficient and this is "don't do that" rather than a latent safety gap.
+**Questions for CPython devs — ANSWERED (Yhg1s, 2026-07-15: "Yes, that's a bug"):**
+1. The read-while-mutate class (concurrent unsynchronized *access* to a shared builtin — the
+   `_Py_SIZE` and `bytes_join` cases) **is actionable.** These are cataloged as **TSAN-0013**
+   (with the marshal reader face **TSAN-0010**). Fix direction: the non-atomic reader should use
+   the atomic accessor the writer already uses (`_PyList_GetItemRef` / an atomic `Py_SIZE` load).
+2. Concurrent `list.sort()` on a shared list (the `binarysort | binarysort` case) falls under the
+   same ruling → cataloged as **TSAN-0014** (root-caused; the isolated repro is hard because the
+   detach window is microscopic, but the fleet observed it and the class is now confirmed valid).

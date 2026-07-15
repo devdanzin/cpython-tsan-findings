@@ -1,0 +1,28 @@
+{
+  "id": "TSAN-0014",
+  "slug": "list-sort-shared-race",
+  "title": "list: concurrent list.sort() of a shared list races (binarysort rewrites the detached array with no critical section)",
+  "description": "list_sort_impl takes NO per-object critical section: it detaches the items array (ob_item=NULL, size=0) and, with no key func, sorts saved_ob_item (the list's own array) in place via binarysort. Two threads sorting the same shared list (or a concurrent reader holding the pre-detach ob_item) race on the array slots. RULED A BUG by Thomas Wouters (Yhg1s) 2026-07-15 (same shared-builtin class).",
+  "signatures": [
+    "Objects/listobject.c:binarysort | Objects/listobject.c:binarysort"
+  ],
+  "sites": [
+    "Objects/listobject.c binarysort:1918 (a[L] = pivot -- rewrites the detached items array)",
+    "Objects/listobject.c list_sort_impl:2968-2977 (saves+detaches ob_item, no critical section; lo.keys = saved_ob_item)"
+  ],
+  "race_kind": "mutate-while-mutate on a shared builtin list (concurrent sort, no critical section)",
+  "shared_state": "the shared list's items array (saved_ob_item, sorted in place)",
+  "severity": "low observed (value-benign, crash-free), but an unsynchronized in-place rewrite of a shared list's array",
+  "reproduced": false,
+  "repro": "repro_attempt.py (concurrent sorters; does NOT reliably trigger in isolation)",
+  "repro_reliability": "NOT reproduced in isolation -- the race window between list_sort_impl saving ob_item and nulling it is ~3 instructions; 4x200k and 16x400k concurrent-sort loops never hit it. The fleet caught it once.",
+  "suggested_fix": "take the list's per-object critical section in list_sort_impl (or otherwise synchronize the detach+in-place-sort against concurrent readers/sorters), consistent with the other list mutators.",
+  "status": "confirmed-in-fleet-unreproduced-in-isolation",
+  "upstream_issue": null,
+  "ruling": "Thomas Wouters (Yhg1s, CPython RM), 2026-07-15: the shared-builtin concurrent-access class 'is a bug'; concurrent list.sort() falls under it.",
+  "related": ["TSAN-0013 (shared-list non-atomic read faces)"],
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_01",
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, heads/main:bcf98ddbc40)",
+  "notes": "Formerly HELD as a dev-question ('is concurrent list.sort() on a shared list intended to stay crash-safe?'); the Yhg1s ruling answers it (yes, it's a bug). Root cause is grounded in the current-main list_sort_impl source; the isolated repro is the only missing piece. If filed, note the detach-without-lock mechanism explicitly."
+}

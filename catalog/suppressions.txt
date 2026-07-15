@@ -5,34 +5,16 @@
 # CPython's own file (currently EMPTY -- core races are genuine findings, not pre-suppressed):
 #   ~/projects/python_build_matrix/builds/debug-ft-nojit-tsan/Tools/tsan/suppressions_free_threading.txt
 
-# --- "concurrent unsynchronized access to a shared builtin" class ---
-# The fuzzer shares raw builtin containers across threads, so one thread reads a list's size
-# (UNPACK_SEQUENCE / slice) while another resizes it -- an atomic store vs a plain read on ob_size.
-# CONFIRMED reproducible in isolation; see notes/shared-builtin-concurrent-access.md. Assumed
-# not-a-bug (unsynchronized shared-object access = program error), pending a CPython-dev ruling.
-# Suppressed so fleets surface races in INTERNAL shared state instead. Remove if devs say it IS
-# interesting.
-_Py_atomic_store_ssize_relaxed \| Include/object.h:_Py_SIZE_impl
-
-# bytes_join reading a shared list another thread is growing -- same read-while-mutate class.
-# CONFIRMED reproducible in isolation (notes/bytes_join_race.py): list.append's list_resize
-# publishes ob_item with an atomic release store while b"".join reads the items with a plain
-# PyList_GET_ITEM. Same atomic-store-vs-plain-read asymmetry as the _Py_SIZE case above.
-# Matched on the join read side (stringlib_bytes_join is a pure reader with no shared state of
-# its own, so any race against it is a concurrent mutation of the joined sequence); this catches
-# both parser vehicles -- the mutate side resolves to either _Py_atomic_store_ptr_release or its
-# outer list_resize frame depending on inlining.
-Objects/stringlib/join.h:stringlib_bytes_join
-
-# binarysort | binarysort -- concurrent list.sort() of a SHARED list. NOT suppressed: unlike the
-# read-while-mutate cases above this is mutate-while-mutate, and list.sort() takes NO critical
-# section on the list (it detaches the array -- ob_item=NULL, size=0 -- and sorts saved_ob_item
-# in place). Two sorters that both grab ob_item in the ~3-instruction window before the other
-# detaches rewrite the same array concurrently. Root-caused but NOT reproduced in isolation (the
-# window is microscopic); held as a question for CPython devs in the umbrella issue -- "is
-# concurrent list.sort() on a shared list intended to stay crash-safe?" -- rather than silently
-# suppressed. See notes/shared-builtin-concurrent-access.md.
-# Objects/listobject.c:binarysort \| Objects/listobject.c:binarysort
+# --- "concurrent unsynchronized access to a shared builtin" -- NO LONGER SUPPRESSED ---
+# 2026-07-15: RULED A BUG by Thomas Wouters (Yhg1s, CPython RM). The maintainer was sent
+# notes/shared_list_race.py + notes/shared-builtin-concurrent-access.md verbatim and replied
+# "Yes, that's a bug." So this class is a valid free-threading defect, not "don't do that."
+# The former suppressions are removed and the class is now cataloged as real findings:
+#   - shared list: non-atomic item/size reads (Py_SIZE / stringlib_bytes_join / w_complex_object)
+#     race list_resize's atomic ob_item/ob_size publish  -> TSAN-0013
+#   - concurrent list.sort() of a shared list (binarysort | binarysort)                -> TSAN-0014
+#   - marshal.dumps(shared_list) reader vs concurrent append                           -> TSAN-0010
+# Nothing from this class is suppressed anymore.
 
 # --- glibc/TSan false positives (uninstrumented libc-internal locks) ---
 # _multiprocessing.SemLock create/destroy: SemLock() -> sem_open() -> tsearch() (insert into

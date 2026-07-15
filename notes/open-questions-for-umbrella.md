@@ -6,10 +6,12 @@ into the umbrella issue when it's written.
 
 ---
 
-## Q1 — Concurrent `list.sort()` on a shared list (`binarysort | binarysort`)
+## Q1 — Concurrent `list.sort()` on a shared list (`binarysort | binarysort`) — ANSWERED (a bug)
 
-**Status:** root-caused from source, **not reproduced in isolation**, NOT suppressed. Held for a
-dev ruling.
+**Status:** ANSWERED 2026-07-15 — Thomas Wouters (Yhg1s) ruled the shared-builtin concurrent-access
+class **is a bug**, which covers this. Promoted to catalog entry **TSAN-0014**. Still not reproduced
+in isolation (detach window is microscopic), but the class is now confirmed valid. Kept here for the
+root-cause writeup below.
 
 `list_sort_impl` (Objects/listobject.c) takes **no critical section** on the list. It detaches the
 items array under no lock —

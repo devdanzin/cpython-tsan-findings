@@ -11,3 +11,8 @@ TSAN-0009	Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modul
 TSAN-0010	Python/marshal.c:w_complex_object | Python/marshal.c:w_complex_object
 TSAN-0011	Python/sysmodule.c:should_audit | Python/sysmodule.c:sys_addaudithook_impl
 TSAN-0012	Modules/faulthandler.c:faulthandler_enable | Modules/faulthandler.c:faulthandler_is_enabled_impl
+TSAN-0013	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/stringlib/join.h:stringlib_bytes_join
+TSAN-0013	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Include/object.h:_Py_SIZE_impl
+TSAN-0013	Include/object.h:_Py_SIZE_impl | Include/object.h:_Py_SIZE_impl
+TSAN-0013	Objects/listobject.c:list_resize | Objects/stringlib/join.h:stringlib_bytes_join
+TSAN-0014	Objects/listobject.c:binarysort | Objects/listobject.c:binarysort

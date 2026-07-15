@@ -26,7 +26,11 @@
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
   "notes": "Vehicle shared a list [1,2,3] across 4 workers; op (b) called marshal.dumps(shared_list) while op (f) did shared_list.append(_i). Reader side uses raw PyList_GET_ITEM (Include/cpython/listobject.h:40) with no lock; writer side (list.append) uses _Py_atomic_store_ptr_release. Same 'writer hardened for FT, reader still plain' class as other fixed CPython FT read-path races. The set branch is the only container branch in w_complex_object currently protected by a critical section; list/tuple/dict should be audited together.",
-  "disposition": "shared-builtin-read-while-mutate (bytes_join class)",
-  "assessment": "BORDERLINE: real race is marshal.dumps(shared_list) reading ob_item vs concurrent append = same read-while-mutate-shared-list class as the suppressed bytes_join/binarysort. Flagged for decision; the in-function set-branch already locks (missed conversion) + list_resize UAF hazard argue for fixing, but it needs concurrent mutation of a shared list.",
-  "related_issues": []
+  "disposition": "real bug (shared-list non-atomic reader face) -- RULED a bug by Yhg1s 2026-07-15",
+  "assessment": "Real free-threading bug: marshal.dumps(shared_list) reads ob_item[] via plain PyList_GET_ITEM in w_complex_object while another thread appends -- a reader face of the shared-builtin read-while-mutate class that Thomas Wouters (Yhg1s) ruled a bug on 2026-07-15. The list_resize variant is additionally a UAF hazard (old ob_item freed under the marshaller's index). Fix: take Py_BEGIN_CRITICAL_SECTION(v) around the list/dict walk (the set branch of the same w_complex_object already does).",
+  "related_issues": [],
+  "ruling": "Thomas Wouters (Yhg1s, CPython RM), 2026-07-15: shared-builtin concurrent-access class 'is a bug'",
+  "related": [
+    "TSAN-0013 (the Py_SIZE/bytes_join reader faces of the same class)"
+  ]
 }
