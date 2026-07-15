@@ -1,9 +1,14 @@
-"""Confirmed reproducer: concurrent time.tzset() corrupts libc global timezone state.
+"""Reproducer for the concurrent time.tzset() TSan report -- which is a glibc/TSan FALSE
+POSITIVE, not a CPython bug. See notes/tzset_glibc_c_repro.c (the identical race in pure C) and
+notes/open-questions-for-umbrella.md for the analysis.
 
-time.tzset() is a METH_NOARGS wrapper over libc tzset(), which mutates the process-global tz
-state (tzname strings, timezone, daylight) and is not safe for concurrent calls. On a free-
-threaded build several threads calling it race in glibc tzset_internal -- one free()s the old
-tzname string while another strdup()s a new one -> a libc heap free/malloc race (crash risk).
+time.tzset() is a METH_NOARGS wrapper over libc tzset(), which rewrites the process-global tz
+state (tzname strings). Several threads calling it produce a TSan report in glibc tzset_internal
+(one free()s the old tzname string while another strdup()s a new one). BUT glibc serializes
+tzset_internal with an internal low-level lock (tzset_lock) that TSan does not model, so the
+report is spurious -- the writes are actually serialized, and 800k+ concurrent calls never crash.
+The read-only converters (localtime/gmtime/strftime/ctime/asctime) do NOT trip it; only tzset and
+mktime (which force a tzset_internal rewrite) do.
 
 Run (free-threaded + TSan build):
     DEBUGINFOD_URLS= setarch -R env PYTHON_GIL=0 \

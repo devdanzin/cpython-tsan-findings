@@ -39,41 +39,55 @@ that", suppress) vs a latent safety gap (→ needs a lock).
 
 ---
 
-## Q2 — Concurrent `time.tzset()` corrupts libc global tz state (`cfunction_vectorcall_NOARGS`)
+## ~~Q2~~ RESOLVED — Concurrent `time.tzset()`/`mktime()` = a glibc/TSan false positive, NOT a CPython bug
 
-**Status:** **CONFIRMED reproducible** (`notes/tzset_race.py`), NEW (no prior upstream issue),
-NOT suppressed. Candidate for a real report.
+**Status:** investigated + **reclassified**. Reproduces in **pure C with no Python** →
+the race is entirely inside glibc; TSan can't see glibc's internal `tzset_lock`. **Not a CPython
+bug, not an umbrella candidate.** Left visible (rare) pending a dedupe-parser tweak to suppress it
+cleanly (see tooling note).
 
-`time.tzset()` is a thin `METH_NOARGS` wrapper over libc `tzset()`, which mutates the process-global
-timezone state (`tzname` strings, `timezone`, `daylight`) and is **not safe for concurrent calls**.
-Under free-threading it's reachable from pure Python, so 4 threads calling `time.tzset()` race in
-glibc `tzset_internal`:
+`time.tzset()` is a `METH_NOARGS` wrapper over libc `tzset()`, which rewrites the process-global
+timezone state (`tzname` strings). 4 threads calling `time.tzset()` produce:
 
 ```
-Write (T10): free   <- tzset_internal (time/tzset.c:401) <- cfunction_vectorcall_NOARGS
-Prev  (T11): malloc <- strdup        (string/strdup.c)   <- cfunction_vectorcall_NOARGS
+Write (T?): free   <- tzset_internal (time/tzset.c:401) <- cfunction_vectorcall_NOARGS
+Prev  (T?): malloc <- strdup        (string/strdup.c)   <- cfunction_vectorcall_NOARGS
 SUMMARY: ThreadSanitizer: data race ... in free
 ```
 
-One thread `free()`s the old `tzname` string while another `strdup()`s a new one → a libc heap
-free/malloc race = a genuine **crash risk** (double-free / use-after-free in libc), not a benign
-reorder. This is analogous to the accepted faulthandler `enable()`/`disable()` global-state race
-(python/cpython#151363): CPython mutates process-global state from a builtin without serializing it.
+At first glance this looks like a real free/malloc heap race on `tzname`. It is **not**:
 
-**Broader impact:** `time.localtime()` / `time.strftime()` / `time.mktime()` also consult the same
-libc tz state (and libc may call `tzset_internal` internally), so the exposure isn't limited to the
-rarely-called `tzset()`. Worth checking whether those race too.
+- **The identical race reproduces from pure C** (`notes/tzset_glibc_c_repro.c`: 4 pthreads calling
+  `tzset()`, no Python) → `data race time/tzset.c:401 in tzset_internal`. So it's a glibc property,
+  independent of CPython and of free-threading.
+- glibc's public `tzset()` serializes `tzset_internal` with an internal **low-level lock**
+  (`tzset_lock`, an `__libc_lock`/futex). TSan does **not** interpose that lock, so it can't
+  establish happens-before across the serialized `free`/`strdup` of `tzname` and reports a race that
+  can't actually occur. **800k+ concurrent `tzset()` calls never crash** — consistent with the
+  writes really being serialized.
 
-**Question for CPython devs:** should CPython serialize `time.tzset()` (and the tz-dependent time
-functions) with a lock, or is concurrent `tzset()` "don't do that" process-global config? Given the
-crash-safety guarantee and the libc heap corruption, this looks actionable.
+**Survey of the tz-dependent `time` functions** (4 threads each, TSan build):
 
-**Tooling note:** the dedupe signature collapses to the generic
+| function | TSan race? | why |
+|---|---|---|
+| `localtime`, `gmtime`, `strftime`, `ctime`, `asctime` | **no** | after the first parse they only *read* tz state (read-read → no TSan report) |
+| `tzset`, `mktime` | yes (false) | *force* a `tzset_internal` rewrite each call; the write is serialized by glibc's unmodeled `tzset_lock` |
+
+So `mktime` trips the same glibc false positive; the read-only converters don't. Nothing here is a
+CPython data race.
+
+**Disposition:** not filed against CPython. (If anything it's a glibc/TSan-instrumentation gap;
+glibc ships `libc` TSan suppressions upstream for exactly this class.) Should be **suppressed** in
+our catalog once the deduper can name the libc site.
+
+**Tooling note (actionable in fusil):** the dedupe signature collapses to the generic
 `Objects/methodobject.c:cfunction_vectorcall_NOARGS | ...cfunction_vectorcall_NOARGS` because
-`tsan_dedup.parse_report` drops non-CPython (libc) frames, so the meaningful racing site
-(`tzset_internal`) is stripped. This signature is **not** cataloged (it would mislabel any future
-concurrent-NOARGS-cfunction libc race as tzset). Consider teaching the parser to keep the top libc
-frame when no deeper CPython frame exists, so libc-level races get a specific signature.
+`tsan_dedup.parse_report` keeps only CPython-source frames, dropping the libc frames — so the
+meaningful racing site (`tzset_internal`) is lost and the signature can't be suppressed without
+also masking *real* concurrent-NOARGS-cfunction races. Fix: when the innermost non-interceptor
+frame (skip `free`/`malloc`/`memcpy`/`strdup`/… and `<null>`) is a libc frame, keep it as the
+racing site so libc-level races get a specific signature (`time/tzset.c:tzset_internal | …`), which
+we can then suppress. Until then tzset/mktime stay visible as NEW `cfunction_vectorcall_NOARGS`.
 
 ---
 
