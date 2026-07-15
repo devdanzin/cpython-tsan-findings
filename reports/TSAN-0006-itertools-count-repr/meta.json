@@ -1,17 +1,44 @@
 {
   "id": "TSAN-0006",
   "slug": "itertools-count-repr",
-  "title": "itertools: concurrent repr() of a shared count() races in count_repr",
+  "title": "itertools: concurrent repr() of a shared count() races count_repr's plain read of lz->cnt against count_next's atomic advance",
+  "description": "In the free-threaded build count_next advances a fast-mode count()'s counter lz->cnt with an atomic compare-exchange (itertoolsmodule.c:3599), but count_repr reads the same field with a plain non-atomic load (itertoolsmodule.c:3612). Sharing a count() across threads while some repr() it and others next() it is a data race (atomic write vs plain read) on an operation callers treat as read-only.",
   "signatures": [
     "Modules/itertoolsmodule.c:count_repr | Modules/itertoolsmodule.c:count_repr"
   ],
   "sites": [
-    "Modules/itertoolsmodule.c count_repr:3612",
-    "Modules/itertoolsmodule.c count_repr:3612"
+    "Modules/itertoolsmodule.c count_repr:3612 (plain read of lz->cnt in fast-mode repr branch)",
+    "Modules/itertoolsmodule.c count_next:3599 (atomic _Py_atomic_compare_exchange_ssize write of lz->cnt)"
   ],
-  "status": "drafted",
+  "race_kind": "atomic/non-atomic mismatch (writer atomic, reader plain) on a shared counter field",
+  "shared_state": "countobject.cnt (Py_ssize_t fast-mode counter; written atomically by count_next, read plainly by count_repr)",
+  "severity": "low (value-benign, crash-free; aligned Py_ssize_t, no torn read; worst case is a stale repr value; technically UB data race on read-only-looking repr())",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66 every run; 3/3 observed)",
+  "suggested_fix": "read lz->cnt in count_repr via _Py_atomic_load_ssize_relaxed(&lz->cnt) (FT_ATOMIC_LOAD_SSIZE_RELAXED), matching the relaxed atomic load count_next already uses at itertoolsmodule.c:3591",
+  "status": "confirmed",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-04/python/asyncio_tools-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, BuildId 210f4dee1678f3b37d4df3e6b4d2f870b5f45e9c)",
+  "notes": "Real bug: incomplete free-threading atomic conversion of the count object. count_next was hardened (relaxed-atomic load + CAS on lz->cnt, plus a critical section for the slow-mode fast->slow transition), but count_repr's fast-mode read of lz->cnt was left as a plain load. TSan's SUMMARY top-frame alternates between count_repr:3612 and count_next:3599/_Py_atomic_compare_exchange_ssize depending on scheduling; same race. Fleet vehicle drove the write side via list(count()) (list_extend_iter -> count_next); the minimal repro uses next() instead to avoid the infinite list(). Audit other itertools objects for the same atomic-write/plain-read asymmetry.",
+  "related_issues": [
+    {
+      "num": 151409,
+      "note": "itertools.islice FT race"
+    },
+    {
+      "num": 144357,
+      "note": "set-iterator race-safe"
+    },
+    {
+      "num": 153062,
+      "note": "itertools.tee crash"
+    }
+  ],
+  "assessment": "real, new \u2014 count_next CAS hardened but count_repr reader missed; count not covered by the above"
 }

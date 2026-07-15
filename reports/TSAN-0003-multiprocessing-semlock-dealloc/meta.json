@@ -1,17 +1,38 @@
 {
   "id": "TSAN-0003",
   "slug": "multiprocessing-semlock-dealloc",
-  "title": "_multiprocessing: SemLock use races with its deallocation (possible use-after-free)",
+  "title": "_multiprocessing: concurrent SemLock create/destroy flags a data race on glibc's __sem_mappings tree (TSan false positive)",
+  "description": "Creating a _multiprocessing.SemLock calls glibc sem_open() -> tsearch (insert into the process-global __sem_mappings tree); destroying it calls sem_close() -> tdelete (remove). Concurrent create/destroy makes TSan report a race on that tree. glibc actually serializes all tree access with __sem_mappings_lock (an lll/futex lock TSan does not intercept), so this is a false positive -- not a CPython bug and not a SemLock use-after-free.",
   "signatures": [
     "Modules/_multiprocessing/semaphore.c:_multiprocessing_SemLock_impl | Objects/object.c:_Py_Dealloc"
   ],
   "sites": [
-    "Objects/object.c _Py_Dealloc:3319",
-    "Modules/_multiprocessing/semaphore.c _multiprocessing_SemLock_impl:516"
+    "Modules/_multiprocessing/semaphore.c _multiprocessing_SemLock_impl:516 (SEM_CREATE = sem_open() -> glibc tsearch(): malloc + insert a __sem_mappings node)",
+    "Objects/object.c _Py_Dealloc:3319 (calls tp_dealloc = semlock_dealloc -> SEM_CLOSE = sem_close() -> glibc tdelete(): free + remove a __sem_mappings node)"
   ],
-  "status": "drafted",
+  "race_kind": "false-positive (uninstrumented glibc internal low-level lock: __sem_mappings_lock / lll_lock is invisible to TSan)",
+  "shared_state": "glibc process-global __sem_mappings red-black tree (named-POSIX-semaphore mapping table); NOT the SemLock PyObject",
+  "severity": "none (TSan false positive; no real data race, no memory unsafety, runs clean on non-TSan builds)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66; 8 threads x 4000 create/destroy of _multiprocessing.SemLock with unlink=True)",
+  "is_real_bug": false,
+  "disposition": "tsan-false-positive-glibc-internal-lock",
+  "suggested_fix": "None in CPython. Suppress via TSan suppressions file (race:tsearch / race:tdelete / race:sem_open / race:sem_close, or called_from_lib:libc.so), or use a TSan-instrumented libc. A CPython-side lock around sem_open/sem_close would only mask harmless noise.",
+  "status": "confirmed",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-03/python/multiprocessing_context-cpu_load-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer), glibc 2.43, setarch -R (ASLR off)",
+  "notes": "Root-caused from C source + glibc disassembly: sem_open/sem_close bracket every tsearch/tdelete/twalk on __sem_mappings with acquire/release on the same lock word (0x2187d8 = __sem_mappings_lock), including __lll_lock_wait_private/__lll_lock_wake_private slow paths. TSan interposes pthread_mutex/rwlock but not glibc's lll_lock, hence the phantom race. Same class covers all named-POSIX-semaphore churn: multiprocessing Lock/RLock/Semaphore/BoundedSemaphore/Condition/Event all build on _multiprocessing.SemLock. The auto-seeded 'SemLock use-after-free' framing is incorrect: the racing address is a libc tree node, and the two SemLock PyObjects are distinct (one created, another destroyed).",
+  "assessment": "NOT a CPython bug \u2014 glibc __sem_mappings tree race under glibc's invisible __sem_mappings_lock (same class as tzset). Suppressed in catalog/suppressions.txt.",
+  "related_issues": [
+    {
+      "num": 118812,
+      "note": "merged: critical sections on SemLock __enter__/__exit__ only \u2014 unrelated to this create/destroy libc-tree FP"
+    }
+  ]
 }

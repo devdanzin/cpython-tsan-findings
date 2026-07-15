@@ -1,17 +1,36 @@
 {
   "id": "TSAN-0001",
   "slug": "cjkcodecs-multibyte-incremental-decoder-state",
-  "title": "cjkcodecs: MultibyteIncrementalDecoder.getstate() races with reset() on the decoder state",
+  "title": "cjkcodecs: MultibyteIncrementalDecoder.getstate() races with reset() on the decoder pending state",
+  "description": "multibytecodec.c's incremental decoder keeps its incomplete-input state in plain fields (pending[8], pendingsize, state) with no lock/critical section; a decoder shared across threads calling getstate() (reads self->pendingsize) and reset() (writes self->pendingsize=0) concurrently is a data race on self->pendingsize.",
   "signatures": [
     "Modules/cjkcodecs/multibytecodec.c:_multibytecodec_MultibyteIncrementalDecoder_getstate_impl | Modules/cjkcodecs/multibytecodec.c:_multibytecodec_MultibyteIncrementalDecoder_reset_impl"
   ],
   "sites": [
-    "Modules/cjkcodecs/multibytecodec.c _multibytecodec_MultibyteIncrementalDecoder_getstate_impl:1261",
-    "Modules/cjkcodecs/multibytecodec.c _multibytecodec_MultibyteIncrementalDecoder_reset_impl:1346"
+    "Modules/cjkcodecs/multibytecodec.c _multibytecodec_MultibyteIncrementalDecoder_getstate_impl:1261 (read self->pendingsize / self->pending, arg to PyBytes_FromStringAndSize)",
+    "Modules/cjkcodecs/multibytecodec.c _multibytecodec_MultibyteIncrementalDecoder_reset_impl:1346 (write self->pendingsize = 0)"
   ],
-  "status": "drafted",
+  "race_kind": "unsynchronized mutable object state (no critical section / GIL-era stateful C object)",
+  "shared_state": "MultibyteIncrementalDecoderObject: unsigned char pending[8], Py_ssize_t pendingsize, MultibyteCodec_State state (all in _MultibyteStatefulDecoder_HEAD, multibytecodec.h); reported race is on pendingsize (8-byte Py_ssize_t)",
+  "severity": "low-medium (reported getstate/reset pairing is value-benign & crash-free; the same unguarded fields are memcpy'd by decode()/setstate() into a fixed 8-byte buffer, so the wider family can tear pending vs pendingsize)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66, races within ~1-2s); signature matches seed exactly (getstate_impl:1261 read vs reset_impl:1346 write)",
+  "suggested_fix": "add per-object critical sections to the incremental encoder/decoder + stream reader/writer methods (Argument Clinic @critical_section on decode/getstate/setstate/reset, or Py_BEGIN_CRITICAL_SECTION(self)); a lone atomic on pendingsize is insufficient because pending+pendingsize+state form one logical state that must be accessed as a unit",
+  "status": "confirmed",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-03/python/encodings_iso2022_jp_2-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, heads/main:bcf98ddbc40, --disable-gil --with-thread-sanitizer, Clang 21)",
+  "notes": "multibytecodec.c has ZERO Py_BEGIN_CRITICAL_SECTION and no @critical_section clinic annotations; the whole incremental/stream CJK codec family shares the _MultibyteStatefulDecoder/Encoder_HEAD layout and the same unguarded-access pattern. Classic 'stateful stdlib C object never made FT-safe' race, not a specific already-filed bug. Fix should cover the whole family.",
+  "related_issues": [
+    {
+      "num": 152767,
+      "note": "multibytecodec errors-setter race; PR #153000 fixes ONLY codecctx_errors_set, NOT getstate/reset \u2014 this pending-state race is distinct and unfixed"
+    }
+  ],
+  "assessment": "real, new (distinct from #152767)"
 }

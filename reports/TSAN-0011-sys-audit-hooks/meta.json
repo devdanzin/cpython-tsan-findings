@@ -1,17 +1,36 @@
 {
   "id": "TSAN-0011",
   "slug": "sys-audit-hooks",
-  "title": "sys: addaudithook races with should_audit on the interpreter audit-hook list",
+  "title": "sys: addaudithook lazily creates interp->audit_hooks with no lock, racing should_audit on every audit event",
+  "description": "sys_addaudithook_impl lazily initializes the per-interpreter audit-hook list (interp->audit_hooks = PyList_New(0)) with a plain unlocked pointer store; should_audit reads that same pointer on every audit event. The first-ever sys.addaudithook() store races with concurrent audit reads and sibling addaudithook stores. Unlike the C-level audit list (guarded by runtime->audit_hooks.mutex), the Python-level list has no synchronization, so concurrent first-time init can also silently drop a hook (security-relevant PEP 578 correctness bug).",
   "signatures": [
     "Python/sysmodule.c:should_audit | Python/sysmodule.c:sys_addaudithook_impl"
   ],
   "sites": [
-    "Python/sysmodule.c sys_addaudithook_impl:540",
-    "Python/sysmodule.c should_audit:239"
+    "Python/sysmodule.c sys_addaudithook_impl:540 (WRITE: interp->audit_hooks = PyList_New(0), unlocked lazy init)",
+    "Python/sysmodule.c should_audit:239 (READ: || interp->audit_hooks, on every audit event via sys_audit_tstate)"
   ],
-  "status": "drafted",
+  "race_kind": "unsynchronized lazy-init of interpreter-global state (plain pointer store vs plain load; no lock/atomic)",
+  "shared_state": "PyInterpreterState.audit_hooks (per-interpreter Python-level audit-hook list; for the main interpreter it lives inside the _PyRuntime global)",
+  "severity": "low-to-moderate (flagged pointer race is value-benign on aligned access, but the same missing lock allows a silently-dropped audit hook (security-relevant correctness) and a latent append-vs-iterate list-internals race)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66, 3/3 runs); write@540 is one-shot per process so the repro collides many first-time addaudithook stores behind a barrier while other threads spin sys.audit()",
+  "suggested_fix": "serialize interp->audit_hooks create+append under the existing runtime->audit_hooks.mutex and use FT_ATOMIC_LOAD/STORE_PTR_RELAXED on the pointer (read in should_audit, NULL-check + store in sys_addaudithook_impl); snapshot the list before iterating in sys_audit_tstate so append can't realloc under a live iterator",
+  "status": "confirmed",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-03/python/sys-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "notes": "Genuine interpreter-global-state race, not a 'don't share this object' scenario -- there is no per-object alternative. The C-level global hook list is already mutex-guarded (runtime->audit_hooks.mutex, locked by PySys_AddAuditHook:507), but the Python-level interp->audit_hooks list added by sys_addaudithook_impl got no equivalent guard -- looks like an incomplete free-threading migration. The in-code 'benign race' comments (sysmodule.c:292-295, 439-442) reason about the C-level singly-linked list, not this pointer-store lazy init. No network access to check the upstream tracker; cross-reference audit-subsystem FT discussions before filing.",
+  "related_issues": [
+    {
+      "num": 152912,
+      "note": "addaudithook exception-check bug (PR #152913) \u2014 DIFFERENT (exception handling, not the data race)"
+    }
+  ],
+  "assessment": "real, new \u2014 unlocked lazy init of interp->audit_hooks; C-level list already mutex-guarded (incomplete FT migration); security-relevant"
 }

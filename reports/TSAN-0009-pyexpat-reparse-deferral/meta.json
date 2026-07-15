@@ -1,17 +1,36 @@
 {
   "id": "TSAN-0009",
   "slug": "pyexpat-reparse-deferral",
-  "title": "pyexpat: XML_SetReparseDeferralEnabled races with callProcessor",
+  "title": "pyexpat/_elementtree: a shared parser's reparse-deferral flag races between SetReparseDeferralEnabled and callProcessor (Parse)",
+  "description": "The bundled libexpat parser caches reparse-deferral in the plain 1-byte XML_Bool field m_reparseDeferralEnabled. XML_SetReparseDeferralEnabled writes it (xmlparse.c:3035) while callProcessor, reached on every Parse(), reads it (xmlparse.c:1136); neither the pyexpat nor _elementtree wrapper locks the parser, so a parser object shared across threads that mixes SetReparseDeferralEnabled()/flush() with Parse()/close() is a data race on that byte. Value-benign; expat parsers are single-threaded by design.",
   "signatures": [
     "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:callProcessor"
   ],
   "sites": [
-    "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3035",
-    "Modules/expat/xmlparse.c callProcessor:1136"
+    "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3035 (write size 1: parser->m_reparseDeferralEnabled = enabled)",
+    "Modules/expat/xmlparse.c callProcessor:1136 (read size 1: if (parser->m_reparseDeferralEnabled && !finalBuffer))",
+    "Modules/expat/xmlparse.c:689 (field decl: XML_Bool m_reparseDeferralEnabled)",
+    "Modules/pyexpat.c pyexpat_xmlparser_SetReparseDeferralEnabled_impl:849 (Python -> XML_SetReparseDeferralEnabled, no critical section)",
+    "Modules/pyexpat.c pyexpat_xmlparser_Parse_impl:919 (Python Parse() -> XML_Parse -> callProcessor, no critical section)",
+    "Modules/_elementtree.c _elementtree_XMLParser_flush_impl:4002/4006 (flush() toggles SetReparseDeferralEnabled FALSE/TRUE)",
+    "Modules/_elementtree.c expat_parse:3924 via _elementtree_XMLParser_close_impl:3960 (close() -> XML_Parse -> callProcessor)"
   ],
-  "status": "drafted",
+  "race_kind": "unsynchronized shared-object field (plain read/write of a bundled-libexpat parser flag; no lock/atomic in the CPython wrapper)",
+  "shared_state": "XML_ParserStruct.m_reparseDeferralEnabled (per-parser 1-byte XML_Bool reparse-deferral flag), shared when one pyexpat/_elementtree parser object is used by multiple threads",
+  "severity": "low (value-benign: lone aligned bool byte, both values valid; only perturbs the reparse-deferral heuristic; no crash/UAF from this field). Requires sharing a single parser across threads, which is outside expat's single-threaded contract.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66, <1s; halt_on_error=1). One Parse-driver thread + several SetReparseDeferralEnabled writer threads on a fresh shared pyexpat parser per round.",
+  "suggested_fix": "No honest single-atomic fix (it would mask only this byte). Either (1) document that pyexpat/_elementtree parser objects are not thread-shareable (status quo, matches libexpat's single-threaded contract), or (2) if pyexpat is to be crash/UB-safe under accidental sharing, wrap the mutating parser methods (Parse/ParseFile/SetReparseDeferralEnabled/flush/feed/close) in a per-parser Py_BEGIN_CRITICAL_SECTION / PyMutex to serialize them.",
+  "status": "confirmed",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-04/python/xml_etree_ElementTree-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, bundled libexpat 2.8.1, Clang 21)",
+  "notes": "Modules/expat/xmlparse.c is third-party bundled libexpat; the PyExpat_ prefix is CPython's expat_config.h symbol renaming. libexpat never synchronizes parser fields because an XML_Parser is single-threaded by design. Unlike TSAN-0005 (dec_hash on an immutable Decimal, where hash() genuinely looks read-only), a pyexpat parser is an explicitly stateful, single-threaded object, so this is closer to expected 'don't share the parser across threads' behavior than an interpreter bug -- likely not worth an individual CPython filing; carried as a low-severity data point for a possible pyexpat per-parser-critical-section decision. This one byte is only the first-touched field; concurrent Parse() races the whole parser struct.",
+  "disposition": "expected-dont-share-parser",
+  "assessment": "expected/low-value \u2014 bundled single-threaded libexpat; a parser is not thread-shareable by design. Catalog data point, not for individual filing."
 }

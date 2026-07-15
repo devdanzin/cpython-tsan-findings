@@ -1,17 +1,36 @@
 {
   "id": "TSAN-0005",
   "slug": "decimal-dec-hash",
-  "title": "_decimal: concurrent hash() of a shared Decimal races in dec_hash (cached hash)",
+  "title": "_decimal: concurrent hash() of a shared Decimal races on the cached hash field (dec_hash)",
+  "description": "`_decimal.c` dec_hash memoizes the hash in self->hash (-1 sentinel) with a plain read/write; concurrent hash() of a shared Decimal is a data race on an operation callers treat as read-only.",
   "signatures": [
     "Modules/_decimal/_decimal.c:dec_hash | Modules/_decimal/_decimal.c:dec_hash"
   ],
   "sites": [
-    "Modules/_decimal/_decimal.c dec_hash:5924",
-    "Modules/_decimal/_decimal.c dec_hash:5925"
+    "Modules/_decimal/_decimal.c dec_hash:5924 (read self->hash == -1)",
+    "Modules/_decimal/_decimal.c dec_hash:5925 (write self->hash = _dec_hash(self))"
   ],
-  "status": "drafted",
+  "race_kind": "lazy-cache (memoized hash)",
+  "shared_state": "PyDecObject.hash (per-object cached hash)",
+  "severity": "low (value-benign, crash-free; data race on read-only-looking hash())",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66)",
+  "suggested_fix": "relaxed atomics on self->hash (FT_ATOMIC load/store), matching the cached-hash pattern used for other immutable types",
+  "status": "confirmed",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-01/python/xmlrpc_client-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "notes": "Same lazy-hash-cache idiom (hash==-1 sentinel) as other C types; fix is to make the cache field atomic. Audit _decimal for other memoized plain fields.",
+  "related_issues": [
+    {
+      "num": 149142,
+      "note": "decimal mpd_context_t.status race (PR #150598) \u2014 DIFFERENT field; the cached-hash race is distinct"
+    }
+  ],
+  "assessment": "real, new (distinct from the decimal context.status race)"
 }

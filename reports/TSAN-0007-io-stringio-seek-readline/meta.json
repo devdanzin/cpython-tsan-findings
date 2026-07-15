@@ -1,17 +1,42 @@
 {
   "id": "TSAN-0007",
   "slug": "io-stringio-seek-readline",
-  "title": "_io: StringIO.seek() races with readline() on a shared StringIO",
+  "title": "_io: StringIO iteration (tp_iternext) is unlocked and races with seek() on self->pos",
+  "description": "Every StringIO method impl is @critical_section-wrapped, but the hand-written tp_iternext slot stringio_iternext takes no critical section: it calls _stringio_readline, which reads/advances self->pos (and touches self->buf) unlocked. Iterating a shared StringIO (readlines()/list()/for-line-in) therefore races with a concurrent seek()/write()/truncate() that DOES hold the lock.",
   "signatures": [
     "Modules/_io/stringio.c:_io_StringIO_seek_impl | Modules/_io/stringio.c:_stringio_readline"
   ],
   "sites": [
-    "Modules/_io/stringio.c _io_StringIO_seek_impl:543",
-    "Modules/_io/stringio.c _stringio_readline:365"
+    "Modules/_io/stringio.c _io_StringIO_seek_impl:543 (write self->pos = pos; @critical_section held)",
+    "Modules/_io/stringio.c _stringio_readline:365 (read self->pos >= self->string_size; NO critical section)",
+    "Modules/_io/stringio.c _stringio_readline:383 (write self->pos += len; NO critical section)",
+    "Modules/_io/stringio.c stringio_iternext:421 (calls _stringio_readline WITHOUT Py_BEGIN_CRITICAL_SECTION; tp_iternext slot wired at :1091)"
   ],
-  "status": "drafted",
-  "upstream_issue": null,
+  "race_kind": "half-locked object: methods @critical_section-protected but tp_iternext slot unlocked (missing per-object critical section)",
+  "shared_state": "stringio.pos (Py_ssize_t stream position); the same unlocked slot also exposes stringio.buf / stringio.string_size",
+  "severity": "low as observed (value-benign race on aligned self->pos, no crash), medium latent (unlocked iterator vs a lock-holding truncate()/write() -> resize_buffer/PyMem_Realloc frees self->buf -> potential UAF/OOB '\\0' write in _stringio_readline)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (~0.6s, exit 66, both runs)",
+  "suggested_fix": "wrap stringio_iternext's body in Py_BEGIN_CRITICAL_SECTION(self)/Py_END_CRITICAL_SECTION() (around the _stringio_readline call), matching every other StringIO entry point. Put the section in the unlocked caller, NOT in the shared helper _stringio_readline, which is also called from the already-locked _io_StringIO_readline_impl (critical sections are not recursive).",
+  "status": "reported",
+  "upstream_issue": 153296,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-04/python/email_parser-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, BuildId 210f4dee1678f3b37d4df3e6b4d2f870b5f45e9c)",
+  "notes": "Real FT-safety gap, not 'don't share this object' user error: CPython deliberately @critical_section-annotated every StringIO method to make concurrent use data-race-free, and the tp_iternext slot was simply overlooked. Fleet seed caught the read/write variant (_stringio_readline:365 vs seek:543); the minimized repro caught the write/write variant (_stringio_readline:383 vs seek:543) -- same self->pos field, same two functions. Audit other _io types / any @critical_section-hardened type for hand-written slots (tp_iternext etc.) that bypass the section.",
+  "related_issues": [
+    {
+      "num": 153296,
+      "note": "Use-after-free with concurrent stringio_iternext \u2014 same bug"
+    },
+    {
+      "num": 153368,
+      "note": "PR wraps stringio_iternext in Py_BEGIN_CRITICAL_SECTION \u2014 exactly the fix"
+    }
+  ],
+  "assessment": "DUPLICATE of upstream #153296 (fix in PR #153368) \u2014 already reported"
 }

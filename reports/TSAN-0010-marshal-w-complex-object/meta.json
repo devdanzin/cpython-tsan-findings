@@ -1,17 +1,32 @@
 {
   "id": "TSAN-0010",
   "slug": "marshal-w-complex-object",
-  "title": "marshal: concurrent marshal writer (w_complex_object) races on shared writer state",
+  "title": "marshal: concurrent marshal.dumps() of a shared list races on the list's ob_item[] array (w_complex_object)",
+  "description": "w_complex_object serializes a list with PyList_GET_ITEM(v, i) (a plain, non-atomic read of ob_item[]) and takes no critical section on the list, unlike the set branch of the same function. marshal.dumps(shared_list) on one thread races with list.append() on another thread, whose atomic ob_item[] store (element slot on the fast path, or ob_item base pointer on the resize path) collides with the marshaller's plain read. marshal.dumps() looks read-only, so a shared list is not safe to marshal concurrently with mutation.",
   "signatures": [
     "Python/marshal.c:w_complex_object | Python/marshal.c:w_complex_object"
   ],
   "sites": [
-    "Python/marshal.c w_complex_object:605",
-    "Python/marshal.c w_complex_object:605"
+    "Python/marshal.c w_complex_object:605 (read PyList_GET_ITEM(v, i) -> ob_item[i], non-atomic, no critical section)",
+    "Objects/listobject.c list_resize:165 / Include/internal/pycore_list.h _PyList_AppendTakeRef:46 (atomic release store into ob_item[] by list.append on the other thread)"
   ],
-  "status": "drafted",
+  "race_kind": "unsynchronized read of a shared mutable container (marshal reader not converted to critical-section/atomic; list.append writer is atomic)",
+  "shared_state": "PyListObject.ob_item[] (element slots on the fast-path append; the ob_item base pointer on the resize/realloc path) of a list shared across threads",
+  "severity": "medium (element-slot variant is value-benign/crash-free; the list_resize variant is a use-after-free hazard when the old ob_item buffer is freed while the marshaller reads it, mitigated but not guaranteed by QSBR-deferred free)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66, races on the first round)",
+  "suggested_fix": "wrap the list (and dict, defensively tuple) serialization loop in w_complex_object with Py_BEGIN_CRITICAL_SECTION(v)/Py_END_CRITICAL_SECTION(), mirroring the set/frozenset branch (marshal.c:655) which already does this; no-op on the default GIL build",
+  "status": "confirmed",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-03/python/marshal-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "notes": "Vehicle shared a list [1,2,3] across 4 workers; op (b) called marshal.dumps(shared_list) while op (f) did shared_list.append(_i). Reader side uses raw PyList_GET_ITEM (Include/cpython/listobject.h:40) with no lock; writer side (list.append) uses _Py_atomic_store_ptr_release. Same 'writer hardened for FT, reader still plain' class as other fixed CPython FT read-path races. The set branch is the only container branch in w_complex_object currently protected by a critical section; list/tuple/dict should be audited together.",
+  "disposition": "shared-builtin-read-while-mutate (bytes_join class)",
+  "assessment": "BORDERLINE: real race is marshal.dumps(shared_list) reading ob_item vs concurrent append = same read-while-mutate-shared-list class as the suppressed bytes_join/binarysort. Flagged for decision; the in-function set-branch already locks (missed conversion) + list_resize UAF hazard argue for fixing, but it needs concurrent mutation of a shared list.",
+  "related_issues": []
 }

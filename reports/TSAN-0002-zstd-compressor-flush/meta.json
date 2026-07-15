@@ -1,17 +1,34 @@
 {
   "id": "TSAN-0002",
   "slug": "zstd-compressor-flush",
-  "title": "_zstd: concurrent ZstdCompressor.flush() data race",
+  "title": "_zstd: ZstdCompressor.last_mode written plain under the lock but read lock-free via its Py_T_INT member descriptor",
+  "description": "ZstdCompressor.flush()/.compress() store the int last_mode field with a plain C write under self->lock (compressor.c:679), but last_mode is exposed as a read-only Py_T_INT member, so getattr(c,'last_mode') reads it with a relaxed-atomic load in PyMember_GetOne (structmember.c:64) without the lock. On a shared compressor the unlocked plain write races the unlocked atomic read.",
   "signatures": [
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_int_relaxed | Modules/_zstd/compressor.c:_zstd_ZstdCompressor_flush_impl"
   ],
   "sites": [
-    "Include/cpython/pyatomic_gcc.h _Py_atomic_load_int_relaxed:307",
-    "Modules/_zstd/compressor.c _zstd_ZstdCompressor_flush_impl:679"
+    "Include/cpython/pyatomic_gcc.h _Py_atomic_load_int_relaxed:307 (relaxed-atomic load, read side)",
+    "Python/structmember.c PyMember_GetOne:64 (FT_ATOMIC_LOAD_INT_RELAXED of the Py_T_INT last_mode member, no lock)",
+    "Modules/_zstd/compressor.c _zstd_ZstdCompressor_flush_impl:679 (plain write self->last_mode = mode, under self->lock)",
+    "Modules/_zstd/compressor.c _zstd_ZstdCompressor_flush_impl:682 (plain write self->last_mode = ZSTD_e_end, reset path)",
+    "Modules/_zstd/compressor.c _zstd_ZstdCompressor_compress_impl:631/634 (same plain writes, same race face)",
+    "Modules/_zstd/compressor.c ZstdCompressor_members:759 (last_mode published as read-only Py_T_INT member)"
   ],
-  "status": "drafted",
+  "race_kind": "plain write vs lock-free relaxed-atomic read (mutable int field exposed as Py_T_INT member; write side not converted to atomic)",
+  "shared_state": "ZstdCompressor.last_mode (int; last compression end-directive). Writes guarded by self->PyMutex lock; member-descriptor read path is lock-free.",
+  "severity": "low (value-benign, crash-free; aligned 4-byte int holding one of three enum constants; genuine TSan data race on read-only-looking getattr + flush()/compress())",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "reliable (exit 66 on every run; ~8 threads/compressor, fresh compressor per round behind a Barrier)",
+  "suggested_fix": "Convert the four last_mode stores (compressor.c:631,634,679,682) to FT_ATOMIC_STORE_INT_RELAXED to pair with the relaxed-atomic FT_ATOMIC_LOAD_INT_RELAXED already used by PyMember_GetOne; no new lock needed on the read path.",
+  "status": "confirmed",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-01/python/_zstd-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "notes": "General 'numeric field mutated by a plain store but published as a Py_T_* member and read lock-free via PyMember_GetOne' class. _zstd is new in 3.14; the member-read relaxed atomics landed with free-threading hardening but the module-side stores were not converted to match. Worth a small upstream PR; low priority given the benign value. Audit other _zstd (and other C-module) mutable Py_T_INT members for the same pattern.",
+  "assessment": "real, new (no FT zstd race filed; incomplete atomic conversion)"
 }

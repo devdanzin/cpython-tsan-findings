@@ -33,3 +33,12 @@ Objects/stringlib/join.h:stringlib_bytes_join
 # concurrent list.sort() on a shared list intended to stay crash-safe?" -- rather than silently
 # suppressed. See notes/shared-builtin-concurrent-access.md.
 # Objects/listobject.c:binarysort \| Objects/listobject.c:binarysort
+
+# --- glibc/TSan false positives (uninstrumented libc-internal locks) ---
+# _multiprocessing.SemLock create/destroy: SemLock() -> sem_open() -> tsearch() (insert into
+# glibc's process-global __sem_mappings tree) races SemLock dealloc -> sem_close() -> tdelete()
+# (remove). glibc serializes every tree access with its internal __sem_mappings_lock (an lll/futex
+# lock TSan does not interpose), so it's a false positive, not a CPython use-after-free (the two
+# SemLock PyObjects are distinct + correctly refcounted). Same class as the tzset false positive.
+# Confirmed by glibc-2.43 disassembly; see reports/TSAN-0003-multiprocessing-semlock-dealloc/.
+Modules/_multiprocessing/semaphore.c:_multiprocessing_SemLock_impl \| Objects/object.c:_Py_Dealloc

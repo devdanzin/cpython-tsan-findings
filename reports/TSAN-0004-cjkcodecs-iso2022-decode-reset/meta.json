@@ -1,17 +1,31 @@
 {
   "id": "TSAN-0004",
   "slug": "cjkcodecs-iso2022-decode-reset",
-  "title": "cjkcodecs: iso2022 decoder reset races (iso2022_decode_reset vs _PyLong_FromByteArray)",
+  "title": "cjkcodecs: shared iso2022 MultibyteIncrementalDecoder reset() races getstate() on the codec state field (iso2022_decode_reset vs _PyLong_FromByteArray)",
+  "description": "An iso2022 MultibyteIncrementalDecoder keeps its ISO-2022 designation state in a plain inline 8-byte field self->state.c. reset() rewrites it via the decreset callback (iso2022_decode_reset: STATE_SETG0 -> 1-byte write of self->state.c[0], _codecs_iso2022.c:314) while getstate() reads the whole field via _PyLong_FromByteArray(self->state.c, ...) (byte read at longobject.c:1069). No lock / critical section, so a decoder shared across threads is a data race on self->state.c. Same underlying unsynchronized-decoder-state bug as TSAN-0001 (different field/face, same fleet vehicle).",
   "signatures": [
     "Modules/cjkcodecs/_codecs_iso2022.c:iso2022_decode_reset | Objects/longobject.c:_PyLong_FromByteArray"
   ],
   "sites": [
-    "Modules/cjkcodecs/_codecs_iso2022.c iso2022_decode_reset:314",
-    "Objects/longobject.c _PyLong_FromByteArray:1069"
+    "Modules/cjkcodecs/_codecs_iso2022.c iso2022_decode_reset:314 (write self->state.c[0] = CHARSET_ASCII via STATE_SETG0, 1-byte; reached from reset_impl:1344 decreset callback)",
+    "Objects/longobject.c _PyLong_FromByteArray:1069 (read *p, a 1-byte read of self->state.c[i]; reached from getstate_impl:1266 _PyLong_FromByteArray(self->state.c, 8, ...))"
   ],
-  "status": "drafted",
+  "race_kind": "unsynchronized mutable object state (no critical section / GIL-era stateful C object)",
+  "shared_state": "MultibyteIncrementalDecoderObject.state (MultibyteCodec_State: unsigned char c[8], inline in _MultibyteStatefulCodec_HEAD, multibytecodec.h); reported race is on state.c[0], the ISO-2022 G0 charset-designation byte. Same object also carries the unguarded pending[8]/pendingsize fields (TSAN-0001).",
+  "severity": "low-medium (reported reset/getstate pairing on state.c[0] is value-benign & crash-free -- a 1-byte store of a constant; the same unguarded object also has decode()/setstate() mutating state+pending+pendingsize as a unit, which the wider family can tear)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic-ish (exit 66, races within ~1-2s); with 1 writer (reset) + 5 readers (getstate) ~12/15 runs catch the exact seeded pair (iso2022_decode_reset:314 write vs _PyLong_FromByteArray:1069 read), the rest catch adjacent faces of the same object-state race (reset/reset write-write on state.c[0], or the pendingsize face from TSAN-0001)",
+  "suggested_fix": "add per-object critical sections to the incremental encoder/decoder + stream reader/writer methods (Argument Clinic @critical_section on decode/getstate/setstate/reset, or Py_BEGIN_CRITICAL_SECTION(self)); a lone atomic on any single field is insufficient because state+pending+pendingsize form one logical state accessed as a unit. Same fix as TSAN-0001, covers both.",
+  "status": "confirmed",
+  "duplicate_of": "TSAN-0001 (same unsynchronized MultibyteIncrementalDecoder state; TSAN-0001 = pendingsize face, TSAN-0004 = state.c face; same fleet vehicle; tsan_dedup split them because the racing function pairs differ)",
   "upstream_issue": null,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
-  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+  "vehicles": [
+    "inst-03/python/encodings_iso2022_jp_2-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, Clang 21)",
+  "notes": "multibytecodec.c has ZERO Py_BEGIN_CRITICAL_SECTION and no @critical_section clinic annotations; the clinic wrappers (getstate:420, reset:466) are trivial pass-throughs with no locking. state.c[0] holds the ISO-2022 G0 charset designation. This is NOT an independent bug from TSAN-0001 -- it is a second racing field of the same shared decoder, from the same vehicle, resolved by the same whole-family critical-section fix. If filed upstream, fold TSAN-0001 + TSAN-0004 into one report on the multibytecodec.c incremental/stream CJK codec family.",
+  "assessment": "real, but DUPLICATE of TSAN-0001 (same MultibyteIncrementalDecoder, state.c face vs pendingsize face) \u2014 fold into one report"
 }
