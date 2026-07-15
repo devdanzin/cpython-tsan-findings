@@ -1,0 +1,17 @@
+{
+  "id": "TSAN-0003",
+  "slug": "multiprocessing-semlock-dealloc",
+  "title": "_multiprocessing: SemLock use races with its deallocation (possible use-after-free)",
+  "signatures": [
+    "Modules/_multiprocessing/semaphore.c:_multiprocessing_SemLock_impl | Objects/object.c:_Py_Dealloc"
+  ],
+  "sites": [
+    "Objects/object.c _Py_Dealloc:3319",
+    "Modules/_multiprocessing/semaphore.c _multiprocessing_SemLock_impl:516"
+  ],
+  "status": "drafted",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_01",
+  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+}

@@ -1,0 +1,17 @@
+{
+  "id": "TSAN-0009",
+  "slug": "pyexpat-reparse-deferral",
+  "title": "pyexpat: XML_SetReparseDeferralEnabled races with callProcessor",
+  "signatures": [
+    "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:callProcessor"
+  ],
+  "sites": [
+    "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3035",
+    "Modules/expat/xmlparse.c callProcessor:1136"
+  ],
+  "status": "drafted",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_01",
+  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+}

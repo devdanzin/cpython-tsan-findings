@@ -1,0 +1,17 @@
+{
+  "id": "TSAN-0004",
+  "slug": "cjkcodecs-iso2022-decode-reset",
+  "title": "cjkcodecs: iso2022 decoder reset races (iso2022_decode_reset vs _PyLong_FromByteArray)",
+  "signatures": [
+    "Modules/cjkcodecs/_codecs_iso2022.c:iso2022_decode_reset | Objects/longobject.c:_PyLong_FromByteArray"
+  ],
+  "sites": [
+    "Modules/cjkcodecs/_codecs_iso2022.c iso2022_decode_reset:314",
+    "Objects/longobject.c _PyLong_FromByteArray:1069"
+  ],
+  "status": "drafted",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_01",
+  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+}

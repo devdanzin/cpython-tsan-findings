@@ -42,6 +42,7 @@ def main():
     ]
     snap_path = ROOT / "catalog" / "known_races.tsv"
     snap = td.load_catalog_file(snap_path) if snap_path.exists() else {}
+    supp = td.Suppressor.from_file(str(ROOT / "catalog" / "suppressions.txt"))
 
     dirs = []
     for g in globs:
@@ -62,6 +63,9 @@ def main():
         report = td.parse_report(text)
         if report is None:
             other["noparse"] += 1
+            continue
+        if supp.suppresses(report):
+            other["suppressed"] += 1
             continue
         if report["framework"]:
             other["framework"] += 1

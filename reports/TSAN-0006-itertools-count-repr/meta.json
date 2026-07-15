@@ -1,0 +1,17 @@
+{
+  "id": "TSAN-0006",
+  "slug": "itertools-count-repr",
+  "title": "itertools: concurrent repr() of a shared count() races in count_repr",
+  "signatures": [
+    "Modules/itertoolsmodule.c:count_repr | Modules/itertoolsmodule.c:count_repr"
+  ],
+  "sites": [
+    "Modules/itertoolsmodule.c count_repr:3612",
+    "Modules/itertoolsmodule.c count_repr:3612"
+  ],
+  "status": "drafted",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_01",
+  "notes": "Auto-seeded from fleet 01; signature is fusil tsan_dedup's. Not yet individually minimized/confirmed except where noted."
+}

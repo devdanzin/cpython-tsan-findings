@@ -2,6 +2,19 @@
 # TSan format: `race:<func-or-file-substr>` / `race_top:<func>`; plain lines are treated as a
 # regex over the whole race signature by fusil's tsan_dedup post-hoc filter.
 #
-# Point CPython's own file here too if/when it gains entries:
+# CPython's own file (currently EMPTY -- core races are genuine findings, not pre-suppressed):
 #   ~/projects/python_build_matrix/builds/debug-ft-nojit-tsan/Tools/tsan/suppressions_free_threading.txt
-# (currently EMPTY -- core races are genuine findings, not pre-suppressed).
+
+# --- "concurrent unsynchronized access to a shared builtin" class ---
+# The fuzzer shares raw builtin containers across threads, so one thread reads a list's size
+# (UNPACK_SEQUENCE / slice) while another resizes it -- an atomic store vs a plain read on ob_size.
+# CONFIRMED reproducible in isolation; see notes/shared-builtin-concurrent-access.md. Assumed
+# not-a-bug (unsynchronized shared-object access = program error), pending a CPython-dev ruling.
+# Suppressed so fleets surface races in INTERNAL shared state instead. Remove if devs say it IS
+# interesting.
+_Py_atomic_store_ssize_relaxed \| Include/object.h:_Py_SIZE_impl
+
+# Probable same class (shared builtin list sorted / joined while mutated) -- NOT yet confirmed in
+# isolation; uncomment once verified as the same non-bug:
+# binarysort \| Objects/listobject.c:binarysort
+# stringlib/join.h:stringlib_bytes_join
