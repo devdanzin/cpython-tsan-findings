@@ -1,0 +1,11 @@
+{
+  "id": "TSAN-0001",
+  "slug": "short-kebab-slug",
+  "title": "one-line: <funcA> vs <funcB> data race under free-threading",
+  "signatures": ["Objects/fileA.c:funcA | Objects/fileB.c:funcB"],
+  "sites": ["Objects/fileA.c funcA:123", "Objects/fileB.c funcB:456"],
+  "status": "drafted",
+  "upstream_issue": null,
+  "found_date": "YYYY-MM-DD",
+  "notes": ""
+}

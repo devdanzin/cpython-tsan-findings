@@ -1,0 +1,7 @@
+# Local / per-target ThreadSanitizer suppressions for --tsan runs.
+# TSan format: `race:<func-or-file-substr>` / `race_top:<func>`; plain lines are treated as a
+# regex over the whole race signature by fusil's tsan_dedup post-hoc filter.
+#
+# Point CPython's own file here too if/when it gains entries:
+#   ~/projects/python_build_matrix/builds/debug-ft-nojit-tsan/Tools/tsan/suppressions_free_threading.txt
+# (currently EMPTY -- core races are genuine findings, not pre-suppressed).
