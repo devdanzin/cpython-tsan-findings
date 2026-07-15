@@ -86,7 +86,35 @@ The same shape appears for other builtin operations that read a container's size
 another thread mutates it (concurrent `list.sort`, slicing, etc.), so a single ruling covers the
 whole class.
 
-**Question for CPython devs:** is this class of race (concurrent unsynchronized access to a shared
-builtin) considered actionable, or is it expected/acceptable and safe to ignore? If the latter,
-we'll suppress it and only report races in *internal* shared state (type caches, module state,
-extension objects, etc.) that a correct single-object-per-thread program can still hit.
+## Confirmed instances from fleet 01
+
+Two fleet-01 signatures were traced to this same class (both on a shared `list`):
+
+- **`bytes_join`** — `Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/stringlib/join.h:stringlib_bytes_join`.
+  **Reproduced in isolation** (`notes/bytes_join_race.py`): one thread `append`s to a shared list
+  (`list_resize` publishes the new `ob_item` with an atomic release store) while another `b"".join`s
+  it (`stringlib_bytes_join` reads the items with a plain, non-atomic `PyList_GET_ITEM`). Same
+  atomic-store-vs-plain-read asymmetry as the `_Py_SIZE` case. Read-while-mutate → **suppressed**.
+
+- **`binarysort`** — `Objects/listobject.c:binarysort | Objects/listobject.c:binarysort`.
+  This is **concurrent `list.sort()` of a shared list**, and it is subtler than the read-while-mutate
+  cases: `list_sort_impl` takes **no critical section** on the list. It *detaches* the items array
+  (`saved_ob_item = self->ob_item; Py_SET_SIZE(self, 0); self->ob_item = NULL`) and, with no
+  `key=` func, sets `lo.keys = saved_ob_item` — so `binarysort` rewrites the list's **own array in
+  place**. Two sorters that both read `ob_item` in the ~3-instruction window before the other
+  detaches then rewrite the same array concurrently (`a[L] = pivot`). The observed instance stayed
+  crash-safe (the slots hold valid objects, just reordered), but this is *mutate-while-mutate*
+  without a lock, not merely read-while-mutate. **Not reproduced in isolation** — the detach window
+  is microscopic (a plain multi-thread sort loop over 100k+ iterations never hit it), though the
+  fleet did once. **Deliberately not suppressed**: held as a dev question for the umbrella issue
+  (below) rather than folded into the "expected, ignore" bucket.
+
+**Questions for CPython devs:**
+1. Is the read-while-mutate class (concurrent unsynchronized *access* to a shared builtin — the
+   `_Py_SIZE` and `bytes_join` cases) considered actionable, or expected/acceptable? If the latter
+   we keep suppressing it and only report races in *internal* shared state (type caches, module
+   state, extension objects) that a correct single-object-per-thread program can still hit.
+2. Separately: is concurrent `list.sort()` on a shared list (the `binarysort | binarysort` case)
+   intended to stay crash-safe? It runs without a per-object critical section and rewrites the
+   detached array in place, so two racing sorts touch the same slots — we'd like confirmation that
+   the detach scheme is sufficient and this is "don't do that" rather than a latent safety gap.

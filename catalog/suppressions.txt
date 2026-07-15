@@ -14,7 +14,22 @@
 # interesting.
 _Py_atomic_store_ssize_relaxed \| Include/object.h:_Py_SIZE_impl
 
-# Probable same class (shared builtin list sorted / joined while mutated) -- NOT yet confirmed in
-# isolation; uncomment once verified as the same non-bug:
-# binarysort \| Objects/listobject.c:binarysort
-# stringlib/join.h:stringlib_bytes_join
+# bytes_join reading a shared list another thread is growing -- same read-while-mutate class.
+# CONFIRMED reproducible in isolation (notes/bytes_join_race.py): list.append's list_resize
+# publishes ob_item with an atomic release store while b"".join reads the items with a plain
+# PyList_GET_ITEM. Same atomic-store-vs-plain-read asymmetry as the _Py_SIZE case above.
+# Matched on the join read side (stringlib_bytes_join is a pure reader with no shared state of
+# its own, so any race against it is a concurrent mutation of the joined sequence); this catches
+# both parser vehicles -- the mutate side resolves to either _Py_atomic_store_ptr_release or its
+# outer list_resize frame depending on inlining.
+Objects/stringlib/join.h:stringlib_bytes_join
+
+# binarysort | binarysort -- concurrent list.sort() of a SHARED list. NOT suppressed: unlike the
+# read-while-mutate cases above this is mutate-while-mutate, and list.sort() takes NO critical
+# section on the list (it detaches the array -- ob_item=NULL, size=0 -- and sorts saved_ob_item
+# in place). Two sorters that both grab ob_item in the ~3-instruction window before the other
+# detaches rewrite the same array concurrently. Root-caused but NOT reproduced in isolation (the
+# window is microscopic); held as a question for CPython devs in the umbrella issue -- "is
+# concurrent list.sort() on a shared list intended to stay crash-safe?" -- rather than silently
+# suppressed. See notes/shared-builtin-concurrent-access.md.
+# Objects/listobject.c:binarysort \| Objects/listobject.c:binarysort
