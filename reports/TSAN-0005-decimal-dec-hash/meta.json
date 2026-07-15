@@ -30,7 +30,12 @@
     {
       "num": 149142,
       "note": "decimal mpd_context_t.status race (PR #150598) \u2014 DIFFERENT field; the cached-hash race is distinct"
+    },
+    {
+      "num": 116738,
+      "note": "Modules/_decimal/_decimal.c is UNCHECKED on the gh-116738 audit list; dec_hash cache still plain on current main."
     }
   ],
-  "assessment": "real, new (distinct from the decimal context.status race)"
+  "assessment": "real, new (distinct from the decimal context.status race)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
 }

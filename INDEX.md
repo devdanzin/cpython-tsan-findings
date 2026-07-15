@@ -57,3 +57,10 @@ false positive (resolved, not a bug).
 None of these overlap **#149816** ("22 free-threading race conditions") — that umbrella covers
 entirely different modules (`_random`/`_ssl`/`typeobject`/`listobject`/`_pickle`/`dict`/`bytes`/
 `memoryview`/`_struct`/`_ctypes`/`_elementtree`/`bufferedio`).
+
+All five report-worthy findings were also cross-checked against **gh-116738** ("Audit all built-in
+modules for thread safety") and confirmed still-unfixed on **current main** (`heads/main:bcf98ddbc40`):
+`multibytecodec.c` (0001/0004), `_decimal.c` (0005), `itertoolsmodule.c` (0006) and `sysmodule.c`
+(0011) are all **unchecked** on that audit list, and `_zstd/` (0002) isn't listed at all (newer 3.14
+module) — no merged audit PR touches any of them. By contrast `_lsprof.c` is **checked** on that
+list, which is why **TSAN-0008 is a residual of completed work**, not a new finding.

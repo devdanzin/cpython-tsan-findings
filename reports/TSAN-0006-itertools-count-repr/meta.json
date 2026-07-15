@@ -38,7 +38,12 @@
     {
       "num": 153062,
       "note": "itertools.tee crash"
+    },
+    {
+      "num": 116738,
+      "note": "Modules/itertoolsmodule.c is UNCHECKED on the gh-116738 audit list; count_repr reads lz->cnt plainly (count_next uses a CAS) on current main."
     }
   ],
-  "assessment": "real, new \u2014 count_next CAS hardened but count_repr reader missed; count not covered by the above"
+  "assessment": "real, new \u2014 count_next CAS hardened but count_repr reader missed; count not covered by the above",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
 }

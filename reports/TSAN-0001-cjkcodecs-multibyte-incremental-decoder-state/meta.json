@@ -30,7 +30,12 @@
     {
       "num": 152767,
       "note": "multibytecodec errors-setter race; PR #153000 fixes ONLY codecctx_errors_set, NOT getstate/reset \u2014 this pending-state race is distinct and unfixed"
+    },
+    {
+      "num": 116738,
+      "note": "Modules/cjkcodecs/multibytecodec.c is UNCHECKED on the gh-116738 audit list (whole file has zero critical sections/atomics on current main) \u2014 this race is exactly what that audit would surface."
     }
   ],
-  "assessment": "real, new (distinct from #152767)"
+  "assessment": "real, new (distinct from #152767)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
 }

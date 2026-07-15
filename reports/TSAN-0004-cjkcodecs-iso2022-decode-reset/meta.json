@@ -27,5 +27,12 @@
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, Clang 21)",
   "notes": "multibytecodec.c has ZERO Py_BEGIN_CRITICAL_SECTION and no @critical_section clinic annotations; the clinic wrappers (getstate:420, reset:466) are trivial pass-throughs with no locking. state.c[0] holds the ISO-2022 G0 charset designation. This is NOT an independent bug from TSAN-0001 -- it is a second racing field of the same shared decoder, from the same vehicle, resolved by the same whole-family critical-section fix. If filed upstream, fold TSAN-0001 + TSAN-0004 into one report on the multibytecodec.c incremental/stream CJK codec family.",
-  "assessment": "real, but DUPLICATE of TSAN-0001 (same MultibyteIncrementalDecoder, state.c face vs pendingsize face) \u2014 fold into one report"
+  "assessment": "real, but DUPLICATE of TSAN-0001 (same MultibyteIncrementalDecoder, state.c face vs pendingsize face) \u2014 fold into one report",
+  "related_issues": [
+    {
+      "num": 116738,
+      "note": "same file as TSAN-0001; Modules/cjkcodecs/multibytecodec.c UNCHECKED on gh-116738."
+    }
+  ],
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
 }

@@ -30,5 +30,12 @@
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
   "notes": "General 'numeric field mutated by a plain store but published as a Py_T_* member and read lock-free via PyMember_GetOne' class. _zstd is new in 3.14; the member-read relaxed atomics landed with free-threading hardening but the module-side stores were not converted to match. Worth a small upstream PR; low priority given the benign value. Audit other _zstd (and other C-module) mutable Py_T_INT members for the same pattern.",
-  "assessment": "real, new (no FT zstd race filed; incomplete atomic conversion)"
+  "assessment": "real, new (no FT zstd race filed; incomplete atomic conversion)",
+  "related_issues": [
+    {
+      "num": 116738,
+      "note": "Modules/_zstd/ is NOT on the gh-116738 audit list (newer 3.14 module); last_mode stores still plain on current main."
+    }
+  ],
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
 }

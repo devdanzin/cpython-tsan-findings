@@ -30,7 +30,12 @@
     {
       "num": 152912,
       "note": "addaudithook exception-check bug (PR #152913) \u2014 DIFFERENT (exception handling, not the data race)"
+    },
+    {
+      "num": 116738,
+      "note": "Python/sysmodule.c is UNCHECKED on the gh-116738 audit list; interp->audit_hooks lazy-init store still plain on current main."
     }
   ],
-  "assessment": "real, new \u2014 unlocked lazy init of interp->audit_hooks; C-level list already mutex-guarded (incomplete FT migration); security-relevant"
+  "assessment": "real, new \u2014 unlocked lazy init of interp->audit_hooks; C-level list already mutex-guarded (incomplete FT migration); security-relevant",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
 }
