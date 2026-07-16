@@ -4,7 +4,8 @@
   "title": "itertools: concurrent repr() of a shared count() races count_repr's plain read of lz->cnt against count_next's atomic advance",
   "description": "In the free-threaded build count_next advances a fast-mode count()'s counter lz->cnt with an atomic compare-exchange (itertoolsmodule.c:3599), but count_repr reads the same field with a plain non-atomic load (itertoolsmodule.c:3612). Sharing a count() across threads while some repr() it and others next() it is a data race (atomic write vs plain read) on an operation callers treat as read-only.",
   "signatures": [
-    "Modules/itertoolsmodule.c:count_repr | Modules/itertoolsmodule.c:count_repr"
+    "Modules/itertoolsmodule.c:count_repr | Modules/itertoolsmodule.c:count_repr",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_compare_exchange_ssize | Modules/itertoolsmodule.c:count_repr"
   ],
   "sites": [
     "Modules/itertoolsmodule.c count_repr:3612 (plain read of lz->cnt in fast-mode repr branch)",
@@ -45,5 +46,8 @@
     }
   ],
   "assessment": "real, new \u2014 count_next CAS hardened but count_repr reader missed; count not covered by the above",
-  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",
+  "fleet02_notes": [
+    "fleet-02 variant: the count_next CAS write-side vs count_repr read (same race, parser picked the atomic frame)"
+  ]
 }

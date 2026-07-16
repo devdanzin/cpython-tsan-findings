@@ -4,7 +4,8 @@
   "title": "marshal: concurrent marshal.dumps() of a shared list races on the list's ob_item[] array (w_complex_object)",
   "description": "w_complex_object serializes a list with PyList_GET_ITEM(v, i) (a plain, non-atomic read of ob_item[]) and takes no critical section on the list, unlike the set branch of the same function. marshal.dumps(shared_list) on one thread races with list.append() on another thread, whose atomic ob_item[] store (element slot on the fast path, or ob_item base pointer on the resize path) collides with the marshaller's plain read. marshal.dumps() looks read-only, so a shared list is not safe to marshal concurrently with mutation.",
   "signatures": [
-    "Python/marshal.c:w_complex_object | Python/marshal.c:w_complex_object"
+    "Python/marshal.c:w_complex_object | Python/marshal.c:w_complex_object",
+    "Objects/listobject.c:list_resize | Python/marshal.c:w_complex_object"
   ],
   "sites": [
     "Python/marshal.c w_complex_object:605 (read PyList_GET_ITEM(v, i) -> ob_item[i], non-atomic, no critical section)",
@@ -32,5 +33,8 @@
   "ruling": "Thomas Wouters (Yhg1s, CPython RM), 2026-07-15: shared-builtin concurrent-access class 'is a bug'",
   "related": [
     "TSAN-0013 (the Py_SIZE/bytes_join reader faces of the same class)"
+  ],
+  "fleet02_notes": [
+    "fleet-02 variant: the list_resize write-side vs the marshal reader (same race)"
   ]
 }

@@ -4,7 +4,8 @@
   "title": "cjkcodecs: shared iso2022 MultibyteIncrementalDecoder reset() races getstate() on the codec state field (iso2022_decode_reset vs _PyLong_FromByteArray)",
   "description": "An iso2022 MultibyteIncrementalDecoder keeps its ISO-2022 designation state in a plain inline 8-byte field self->state.c. reset() rewrites it via the decreset callback (iso2022_decode_reset: STATE_SETG0 -> 1-byte write of self->state.c[0], _codecs_iso2022.c:314) while getstate() reads the whole field via _PyLong_FromByteArray(self->state.c, ...) (byte read at longobject.c:1069). No lock / critical section, so a decoder shared across threads is a data race on self->state.c. Same underlying unsynchronized-decoder-state bug as TSAN-0001 (different field/face, same fleet vehicle).",
   "signatures": [
-    "Modules/cjkcodecs/_codecs_iso2022.c:iso2022_decode_reset | Objects/longobject.c:_PyLong_FromByteArray"
+    "Modules/cjkcodecs/_codecs_iso2022.c:iso2022_decode_reset | Objects/longobject.c:_PyLong_FromByteArray",
+    "Modules/cjkcodecs/_codecs_cn.c:hz_decode_reset | Objects/longobject.c:_PyLong_FromByteArray"
   ],
   "sites": [
     "Modules/cjkcodecs/_codecs_iso2022.c iso2022_decode_reset:314 (write self->state.c[0] = CHARSET_ASCII via STATE_SETG0, 1-byte; reached from reset_impl:1344 decreset callback)",
@@ -34,5 +35,8 @@
       "note": "same file as TSAN-0001; Modules/cjkcodecs/multibytecodec.c UNCHECKED on gh-116738."
     }
   ],
-  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",
+  "fleet02_notes": [
+    "fleet-02: HZ/gb codec (_codecs_cn.c) reset-vs-read -- same cjkcodecs incremental-decoder-state class as iso2022, another codec face"
+  ]
 }
