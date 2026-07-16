@@ -1,0 +1,50 @@
+{
+  "id": "TSAN-0018",
+  "slug": "object-getstate-default",
+  "title": "dict split-keys: readers of a type's shared dk_nentries use plain loads instead of LOAD_KEYS_NENTRIES (object.__getstate__, dict.clear) racing setattr's atomic bump",
+  "description": "object.__getstate__ (object_getstate_default -> _PyObject_IsInstanceDictEmpty) iterates the type's shared-keys with a plain loop bound `i < keys->dk_nentries`; a concurrent setattr adding a NEW attribute name inserts a key and bumps dk_nentries via split_keys_entry_added's _Py_atomic_store_ssize_relaxed. The write was deliberately made atomic (comment: racing with reads) but this reader omitted the matching LOAD_KEYS_NENTRIES atomic load. Pickling/copying an object while another thread does setattr is a data race on the type's shared-keys dk_nentries.",
+  "signatures": [
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/typeobject.c:object_getstate_default",
+    "Objects/dictobject.c:clear_lock_held | Objects/dictobject.c:clear_lock_held"
+  ],
+  "sites": [
+    "Objects/dictobject.c split_keys_entry_added:248 (WRITE, atomic: _Py_atomic_store_ssize_relaxed(&keys->dk_nentries, keys->dk_nentries + 1))",
+    "Include/cpython/pyatomic_gcc.h _Py_atomic_store_ssize_relaxed:513 (the atomic store primitive)",
+    "Objects/dictobject.c insert_split_key:1940 (calls split_keys_entry_added after inserting a new shared key)",
+    "Objects/dictobject.c store_instance_attr_lock_held:7396 (setattr on inline-values instance -> insert_split_key)",
+    "Objects/dictobject.c _PyObject_IsInstanceDictEmpty:7666 (READ, plain: for i < keys->dk_nentries loop bound; should use LOAD_KEYS_NENTRIES)",
+    "Objects/typeobject.c object_getstate_default:7928 (calls _PyObject_IsInstanceDictEmpty)",
+    "Objects/typeobject.c object___getstate___impl:8079 / object_getstate:8054 (object.__getstate__, also reached via pickle reduce_newobj / copy)"
+  ],
+  "race_kind": "shared split-keys dk_nentries: non-atomic reader vs atomic writer (multiple reader call sites)",
+  "shared_state": "PyDictKeysObject.dk_nentries of a type's shared keys (CACHED_KEYS(tp)); grows when setattr first-touches a new attribute name, read as the inline-values iteration bound",
+  "severity": "low (value-benign, crash-free; single aligned word, monotonically increasing; per-slot value read already atomic and array is capacity-sized, so no OOB/UAF). Real TSan data race on read-only-looking pickle/copy/__getstate__.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66) within a few seconds; SUMMARY may name either side of the same read/write pair",
+  "suggested_fix": "In _PyObject_IsInstanceDictEmpty (dictobject.c:7666) read the loop bound via LOAD_KEYS_NENTRIES(keys) (= _Py_atomic_load_ssize_relaxed(&keys->dk_nentries)) instead of the plain keys->dk_nentries; relaxed ordering suffices. Non-free-threaded build unaffected (macro is a plain read there).",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/shelve-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main tip of the build, Jul 4 2026)",
+  "notes": "Writer split_keys_entry_added:248 was deliberately made atomic ('increase before we decrease ... when we're racing with reads'); the reader in _PyObject_IsInstanceDictEmpty forgot the matching atomic load. The same file already uses the correct LOAD_KEYS_NENTRIES macro (dict_equal, :4632). Audit other plain iterations of shared-keys dk_nentries. In scope: __getstate__+setattr is a normal method race, distinct from concurrent __init__/construction (cf. cpython#127192).",
+  "related_issues": [
+    {
+      "num": 116738,
+      "note": "Audit all built-in modules for thread safety -- the dict/split-keys hardening remit; no PR covers these specific reader sites"
+    }
+  ],
+  "assessment": "Real, NEW (no existing filing). The writer split_keys_entry_added bumps dk_nentries atomically ('when we're racing with reads'); these readers forgot the matching LOAD_KEYS_NENTRIES (the atomic macro already exists at dictobject.c:237 and is used correctly at :4632). Fix: LOAD_KEYS_NENTRIES at the reader sites. Same shared-split-keys FT-hardening remit as gh-116738. Cross-check gh-116738/gh-115999 before filing.",
+  "reader_faces": [
+    "object_getstate_default (typeobject.c:7666, via pickle/copy)",
+    "clear_lock_held (dictobject.c:3110/3115, via dict.clear on a sibling instance)"
+  ],
+  "related": [
+    "TSAN-0021 (clear_lock_held face, folded here)"
+  ]
+}

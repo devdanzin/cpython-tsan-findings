@@ -4,7 +4,9 @@
   "title": "_io: StringIO iteration (tp_iternext) is unlocked and races with seek() on self->pos",
   "description": "Every StringIO method impl is @critical_section-wrapped, but the hand-written tp_iternext slot stringio_iternext takes no critical section: it calls _stringio_readline, which reads/advances self->pos (and touches self->buf) unlocked. Iterating a shared StringIO (readlines()/list()/for-line-in) therefore races with a concurrent seek()/write()/truncate() that DOES hold the lock.",
   "signatures": [
-    "Modules/_io/stringio.c:_io_StringIO_seek_impl | Modules/_io/stringio.c:_stringio_readline"
+    "Modules/_io/stringio.c:_io_StringIO_seek_impl | Modules/_io/stringio.c:_stringio_readline",
+    "Modules/_io/stringio.c:_io_StringIO_close_impl | Modules/_io/stringio.c:stringio_iternext",
+    "Modules/_io/stringio.c:realize | Modules/_io/stringio.c:realize"
   ],
   "sites": [
     "Modules/_io/stringio.c _io_StringIO_seek_impl:543 (write self->pos = pos; @critical_section held)",
@@ -38,5 +40,8 @@
       "note": "PR wraps stringio_iternext in Py_BEGIN_CRITICAL_SECTION \u2014 exactly the fix"
     }
   ],
-  "assessment": "DUPLICATE of upstream #153296 (fix in PR #153368) \u2014 already reported"
+  "assessment": "DUPLICATE of upstream #153296 (fix in PR #153368) \u2014 already reported",
+  "fleet02_notes": [
+    "fleet-02: additional signature face(s) folded in: Modules/_io/stringio.c:_io_StringIO_close_impl | Modules/_io/stringio.c:stringio_iternext; Modules/_io/stringio.c:realize | Modules/_io/stringio.c:realize"
+  ]
 }

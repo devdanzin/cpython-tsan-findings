@@ -4,7 +4,8 @@
   "title": "pyexpat/_elementtree: a shared parser's reparse-deferral flag races between SetReparseDeferralEnabled and callProcessor (Parse)",
   "description": "The bundled libexpat parser caches reparse-deferral in the plain 1-byte XML_Bool field m_reparseDeferralEnabled. XML_SetReparseDeferralEnabled writes it (xmlparse.c:3035) while callProcessor, reached on every Parse(), reads it (xmlparse.c:1136); neither the pyexpat nor _elementtree wrapper locks the parser, so a parser object shared across threads that mixes SetReparseDeferralEnabled()/flush() with Parse()/close() is a data race on that byte. Value-benign; expat parsers are single-threaded by design.",
   "signatures": [
-    "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:callProcessor"
+    "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:callProcessor",
+    "Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse"
   ],
   "sites": [
     "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3035 (write size 1: parser->m_reparseDeferralEnabled = enabled)",
@@ -32,5 +33,8 @@
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, bundled libexpat 2.8.1, Clang 21)",
   "notes": "Modules/expat/xmlparse.c is third-party bundled libexpat; the PyExpat_ prefix is CPython's expat_config.h symbol renaming. libexpat never synchronizes parser fields because an XML_Parser is single-threaded by design. Unlike TSAN-0005 (dec_hash on an immutable Decimal, where hash() genuinely looks read-only), a pyexpat parser is an explicitly stateful, single-threaded object, so this is closer to expected 'don't share the parser across threads' behavior than an interpreter bug -- likely not worth an individual CPython filing; carried as a low-severity data point for a possible pyexpat per-parser-critical-section decision. This one byte is only the first-touched field; concurrent Parse() races the whole parser struct.",
   "disposition": "expected-dont-share-parser",
-  "assessment": "expected/low-value \u2014 bundled single-threaded libexpat; a parser is not thread-shareable by design. Catalog data point, not for individual filing."
+  "assessment": "expected/low-value \u2014 bundled single-threaded libexpat; a parser is not thread-shareable by design. Catalog data point, not for individual filing.",
+  "fleet02_notes": [
+    "fleet-02: additional signature face(s) folded in: Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse"
+  ]
 }

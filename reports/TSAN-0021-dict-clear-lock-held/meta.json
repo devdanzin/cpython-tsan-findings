@@ -1,0 +1,49 @@
+{
+  "id": "TSAN-0021",
+  "slug": "dict-clear-lock-held",
+  "title": "dict: clear_lock_held() reads a shared split-keys dk_nentries non-atomically, racing split_keys_entry_added()",
+  "description": "clear_lock_held() reads oldkeys->dk_nentries with a plain load (dictobject.c:3110/3115) while a concurrent attribute insert into a DIFFERENT instance of the same class bumps that same shared PyDictKeysObject.dk_nentries with a relaxed atomic store in split_keys_entry_added() (dictobject.c:248). Instances share the type's split keys; the clear path holds only the per-dict critical section, not LOCK_KEYS, so the plain read races the atomic write. Shared state is the shared split-keys object, not the same dict.",
+  "signatures": [
+    "Objects/dictobject.c:clear_lock_held | Objects/dictobject.c:clear_lock_held"
+  ],
+  "confirmed_signature": "Objects/dictobject.c:clear_lock_held (plain read dk_nentries) | Objects/dictobject.c:split_keys_entry_added (relaxed atomic write dk_nentries)",
+  "sites": [
+    "Objects/dictobject.c clear_lock_held:3110 (READ oldkeys->dk_nentries, plain, embedded split path; column :51)",
+    "Objects/dictobject.c clear_lock_held:3115 (READ oldkeys->dk_nentries, plain, non-embedded split path; the seeded vehicle's line)",
+    "Objects/dictobject.c split_keys_entry_added:248 (WRITE keys->dk_nentries, _Py_atomic_store_ssize_relaxed, under LOCK_KEYS)",
+    "Objects/dictobject.c insert_split_key:1940 (calls split_keys_entry_added under LOCK_KEYS at :1930)",
+    "Objects/dictobject.c:237 LOAD_KEYS_NENTRIES macro (intended relaxed-atomic reader; used correctly at :4632)"
+  ],
+  "race_kind": "shared split-keys count: plain read vs relaxed-atomic write (mixed atomic/non-atomic on shared PyDictKeysObject.dk_nentries)",
+  "shared_state": "PyDictKeysObject.dk_nentries of a class's shared split keys (type ht_cached_keys), reached from two DIFFERENT instance dicts (not the same dict)",
+  "severity": "low (value-benign, crash-free: aligned 8-byte ssize_t, count within values capacity, NULL slots; but a real TSan data race on ordinary dict.clear()/setattr paths)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: race detected on every run (exit 66). SUMMARY top-frame alternates between clear_lock_held and the writer's inlined _Py_atomic_store_ssize_relaxed; the racing PAIR (clear_lock_held vs split_keys_entry_added) is invariant.",
+  "suggested_fix": "In clear_lock_held(), read the shared count via LOAD_KEYS_NENTRIES(oldkeys) (relaxed atomic load) at both :3110 and :3115 instead of the plain oldkeys->dk_nentries, matching the writer's relaxed atomic store and the existing reader idiom at dictobject.c:4632.",
+  "status": "folded",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-03/python/urllib_request-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "vehicle_paths": [
+    "/home/fusil/runs/fusil-tsan_fleet_02/inst-03/python/urllib_request-warning_threadsanitizer_data_race-tsanNEW/source.py"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, BuildId 210f4dee1678f3b37d4df3e6b4d2f870b5f45e9c)",
+  "notes": "Seeded signature clear_lock_held|clear_lock_held is a dedup artifact (deduper keyed both sides to the SUMMARY function); the true counter-party is split_keys_entry_added via insert_split_key. Vehicle caught the reader via cyclic GC dict_tp_clear (line 3115, non-embedded split) and the writer via object.__dir__ -> merge_class_dict -> PyDict_Update. Minimal repro drives it directly: setattr (grow shared keys) vs inst.__dict__.clear(); it lands on the sibling line 3110 (embedded split), same function/field/bug. No 'Location is' line (shared PyDictKeysObject not attributed by TSan); both accesses agree on the same address. Resize-path plain reads at :2238/:2255 operate on exclusively-owned keys and are out of scope.",
+  "related_issues": [
+    {
+      "num": 116738,
+      "note": "gh-116738 free-threaded C-API/dict thread-safety audit umbrella; dictobject.c split-keys hardening (LOCK_KEYS/LOAD_KEYS_NENTRIES) is part of this class. clear_lock_held's plain dk_nentries reads still present on this build."
+    },
+    {
+      "num": 115999,
+      "note": "gh-115999 free-threaded specialization/dict thread-safety work that introduced the shared split-keys machinery this race sits in (LOAD_KEYS_NENTRIES exists as the intended atomic reader)."
+    }
+  ],
+  "assessment": "SAME class as TSAN-0018 (shared split-keys dk_nentries plain read vs atomic bump). clear_lock_held reader face; folded into 0018 which carries both signatures. Kept as a 2nd vehicle/repro.",
+  "confirmed_unfixed_on": "python_build_matrix debug-ft-nojit-tsan (CPython 3.16.0a0, built 2026-07-04); clear_lock_held plain reads at :3110/:3115 present",
+  "duplicate_of": "TSAN-0018"
+}

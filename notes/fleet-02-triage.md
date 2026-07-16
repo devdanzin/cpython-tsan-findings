@@ -17,7 +17,7 @@
   Known: devdanzin **#126315** ("tracemalloc aborts from threads in no-gil") / by-design.
 - **faulthandler** `disable | is_enabled_impl` (3) → **TSAN-0012** (`fatal_error.enabled`, #151363/#151475).
 - **_lsprof** `Stop|flush_unmatched` (3), `flush_unmatched|initContext` (3) → **TSAN-0008** (gh-116738/#138229 teardown residual).
-- **StringIO** `close|iternext` (9), `realize|realize` (1) → **TSAN-0007** area (unguarded `stringio_iternext`, #153296/PR#153368). TODO: confirm the fix's critical section also covers `close`.
+- **StringIO** `close|iternext` (9), `realize|realize` (1) → **TSAN-0007** area (unguarded `stringio_iternext`, #153296). CONFIRMED: PR #153368 (wraps `stringio_iternext` in `Py_BEGIN_CRITICAL_SECTION(self)`) is still **OPEN/unmerged**, so current main's `iternext` is unguarded while `close` (a clinic method) is guarded → they race; the pending fix covers `close|iternext` too (both take `self`'s critical section). No new entry.
 - **pyexpat** `XML_Parse|XML_Parse` (4), `SetReparseDeferralEnabled` (1), `poolGrow|setContext` (1) → **TSAN-0009** (bundled single-threaded libexpat).
 - **locale** `setlocale`/`decode_monetary` (3) → **#127081** "Thread-unsafe libc functions" (open; also conceptually covers the tzset glibc-FP). Known libc thread-unsafety, not CPython's to fix per-call.
 
@@ -26,15 +26,32 @@
 - **Subinterpreters** (per **#143232** policy): `PyInterpreterState_Head|_PyInterpreterState_New` (8, concurrent_interpreters), `posixmodule_exec` (6, _interpreters), `structseq_new_impl` (2, _interpchannels), `_PyExc_InitTypes` (1). ~17 vehicles excluded.
 - **Concurrent `__init__`/construction** (per **#127192**, unsupported): `bytearray___init___impl|…` (2) — concurrent re-init of a shared bytearray. Excluded. (tp_new_wrapper under investigation — see TSAN-0020, scope TBD.)
 
-## Genuinely-new deep-dive (in flight — TSAN-0015..0021, 7 parallel agents)
+## Deep-dive RESULTS (TSAN-0015..0021 — all reproduced exit 66, independently re-verified)
 
-- **TSAN-0015** odict `_odict_clear_nodes | odictiter_new` (4) — OrderedDict clear-vs-iterate, likely UAF.
-- **TSAN-0016** readline `get_completer | set_hook` (7) — readline global state (assess CPython-state vs libreadline-global).
-- **TSAN-0017** _zstd `flush | flush` (8) — concurrent flush; distinct-from-vs-dup-of TSAN-0002 (last_mode) TBD.
-- **TSAN-0018** typeobject `object_getstate_default` vs atomic ssize store (3) — `__getstate__` (shelve/pickle).
-- **TSAN-0019** _decimal `Context_clear_flags | context_repr` (3) — Context flags; cross-check **#149142** (mpd_context_t.status, devdanzin) — likely dup.
-- **TSAN-0020** typeobject `tp_new_wrapper | tp_new_wrapper` (4) — SCOPE TBD (concurrent construction #127192 vs shared type-state).
-- **TSAN-0021** dictobject `clear_lock_held | clear_lock_held` (1) — dict clear under critical section; why does TSan still flag it (shared empty-keys singleton?).
+- **TSAN-0018 (+0021) = the one genuinely-NEW bug: shared split-keys `dk_nentries` non-atomic
+  readers.** `object.__getstate__` (`object_getstate_default`, via pickle/copy) AND `dict.clear`
+  (`clear_lock_held`, on a sibling instance of the same class) read a **type's shared split-keys
+  `dk_nentries`** with a plain load, racing `setattr`'s atomic bump (`split_keys_entry_added`, which
+  is deliberately atomic — comment "when we're racing with reads"). The atomic macro
+  `LOAD_KEYS_NENTRIES` already exists (`dictobject.c:237`) and is used correctly elsewhere (`:4632`)
+  — these readers just forgot it. Low severity (value-benign) but real, in scope, **no existing
+  filing**. Fix: `LOAD_KEYS_NENTRIES` at the reader sites. 0021 folded into 0018 (two reader faces,
+  one bug). Cross-check gh-116738 before filing.
+- **TSAN-0015 odict** clear-vs-iterate → **ALREADY REPORTED #151627** (UAF in `odictiter_new`, PR
+  #151688 pending). Real, confirmed; reader path unlocked while clear is `@critical_section`.
+- **TSAN-0016 readline** `get_completer` → **ALREADY REPORTED #153291** (PR #153362; covers the
+  sibling `get_pre_input_hook` too). Real CPython module-state race (not libreadline), confirmed.
+- **TSAN-0019 decimal Context** `clear_flags | repr` → **DUP of #149142** (mpd_context_t.status,
+  PR #150598 pending). Not for separate filing.
+- **TSAN-0017 _zstd flush** → **DUP of TSAN-0002** (same `last_mode`; control experiment with no
+  getattr runs clean — no distinct cctx bug). Folded into 0002.
+- **TSAN-0020 tp_new_wrapper** → **OUT OF SCOPE**: the racing memory is inside OpenSSL's libcrypto
+  (each thread builds its own `ssl.SSLContext`; `tp_new_wrapper` is just the nearest symbolized
+  frame — libcrypto is stripped). An OpenSSL-internal cache race, like TSAN-0003. Kept OUT of
+  known_races (signature too broad); documented.
+
+**Net from the 7 deep-dives: 1 genuinely-new filable bug (TSAN-0018 split-keys readers), 3 already
+reported (#151627/#153291/#149142), 1 dup of a catalog entry (0002), 1 out-of-scope (OpenSSL).**
 
 ## Remaining new singles not yet assigned (candidates for a later pass)
 

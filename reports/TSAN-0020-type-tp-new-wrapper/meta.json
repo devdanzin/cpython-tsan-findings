@@ -1,0 +1,40 @@
+{
+  "id": "TSAN-0020",
+  "slug": "type-tp-new-wrapper",
+  "title": "OpenSSL-internal (not CPython): concurrent ssl.SSLContext()/SSL_CTX_new races OpenSSL's global algorithm-fetch cache; surfaces under tp_new_wrapper",
+  "description": "The seeded `tp_new_wrapper | tp_new_wrapper` signature is a symbolization artifact: the actual race is memcmp(read)/memcpy(write) on a 104-byte CRYPTO_malloc'd block INSIDE libcrypto.so.3 (OpenSSL 3.5.5). Two threads each independently construct their OWN ssl.SSLContext -> _ssl._SSLContext.__new__ (tp_new_wrapper, typeobject.c:10478) -> SSL_CTX_new, which populates OpenSSL's process-global method/algorithm-fetch cache: locked memcpy insert vs lock-free memcmp lookup. No CPython object or type state races. Not a CPython bug.",
+  "signatures": [],
+  "sites": [
+    "Objects/typeobject.c tp_new_wrapper:10478 (res = type->tp_new(subtype, args_tuple, kwds) -> _ssl._SSLContext C tp_new -> SSL_CTX_new; NEAREST SYMBOLIZED frame only)",
+    "libcrypto.so.3+0x250b01 (read: memcmp on OpenSSL method-store/cache entry; lock-free lookup) -- UNSYMBOLIZED OpenSSL internals",
+    "libcrypto.so.3+0x250916 (write: memcpy populating OpenSSL cache entry; holds CRYPTO_THREAD lock M0) -- UNSYMBOLIZED OpenSSL internals",
+    "libcrypto.so.3+0x261d65 CRYPTO_malloc (allocates the racing 104-byte OpenSSL heap block)",
+    "libcrypto.so.3+0x276ec5 CRYPTO_THREAD_lock_new / +0x276fac CRYPTO_THREAD_run_once (creates mutex M0 during module init)"
+  ],
+  "race_kind": "third-party (OpenSSL/libcrypto) internal cache-population race: locked memcpy insert vs lock-free memcmp lookup; reached via legitimate independent object construction. NOT a CPython race.",
+  "shared_state": "OpenSSL process-global algorithm-fetch / method-store cache entry (104-byte CRYPTO_malloc'd block in libcrypto's EVP/provider layer). NOT a PyObject, NOT CPython type state.",
+  "severity": "none for CPython (not a CPython bug); low for OpenSSL (idempotent first-touch cache population, torn 8-byte read, very likely benign / known upstream)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "reliable: 6/6 with NT=24 + per-round barrier (exit 66). Race window is the single cold-cache first-touch; a naive 8-thread version hits ~1/3.",
+  "suggested_fix": "None in CPython. Add a fleet suppression (like TSAN-0003's glibc entry in catalog/suppressions.txt) keyed on tp_new_wrapper|tp_new_wrapper GATED on memcmp/memcpy top frames in libcrypto.so.3 (bare tp_new_wrapper key is too broad). Optionally add libcrypto to Tools/tsan/suppressions_free_threading.txt. Optional FYI to OpenSSL; do NOT include in the CPython umbrella.",
+  "status": "out-of-scope",
+  "scope_decision": "OUT OF SCOPE. NOT concurrent construction of the same shared object (cpython#127192) -- each thread builds its OWN distinct SSLContext, nothing shared at the Python level. NOT a race on shared CPython type-level state (tp_flags/version-tag/__new__ cache/ht_cached_keys/mro) -- the racing address is OpenSSL heap (CRYPTO_malloc), and both accesses are memcmp/memcpy inside libcrypto. It is a data race INSIDE OpenSSL, reached through a documented thread-safe entry point (SSL_CTX_new). tp_new_wrapper is only the nearest symbolized frame because libcrypto is stripped. Disposition mirrors TSAN-0003 (third-party lib race under a CPython frame), though here the write holds a CRYPTO_THREAD rwlock TSan sees and the read is genuinely lock-free (a real OpenSSL race, not a pure TSan artifact).",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/xml_dom_xmlbuilder-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer); OpenSSL 3.5.5 (libcrypto.so.3 buildid 73e616ba30ede1ea26cb22d6dcd4418d6e2ebab4); glibc 2.43",
+  "notes": "Every libcrypto offset in the confirmed repro matches the seeded vehicle report byte-for-byte (memcmp +0x250b01, memcpy +0x250916, CRYPTO_malloc +0x261d65, CRYPTO_THREAD_lock_new +0x276ec5). Trigger chain: ssl.SSLContext.__new__ (Lib/ssl.py:438, slot_tp_new) -> _ssl._SSLContext.__new__ (tp_new_wrapper) -> SSL_CTX_new. ANY OpenSSL-backed construction/first-touch (ssl/hashlib/hmac) collapses to this same tp_new_wrapper frame, so the signature is a poor dedup key and should be suppressed gated on the libcrypto frames.",
+  "related_issues": [
+    {
+      "num": 127192,
+      "note": "concurrent construction of the SAME object is unsupported -- does NOT apply here: each thread constructs its own distinct SSLContext; scope decision is out-of-scope for a different reason (OpenSSL-internal race)."
+    }
+  ],
+  "assessment": "not a CPython bug (OpenSSL-internal / third-party); reproduced and root-caused; out of scope for the CPython FT umbrella",
+  "signature_observed": "Objects/typeobject.c:tp_new_wrapper | Objects/typeobject.c:tp_new_wrapper",
+  "disposition": "OpenSSL-internal race (libcrypto method-store cache), NOT CPython -- tp_new_wrapper is just the nearest symbolized frame. Like TSAN-0003. Signatures[] emptied so it stays OUT of known_races.tsv (tp_new_wrapper|tp_new_wrapper is too broad -- would mislabel any OpenSSL-backed construction). Documented; resurfaces as NEW (acceptable)."
+}

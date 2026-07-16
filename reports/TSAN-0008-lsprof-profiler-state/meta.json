@@ -4,7 +4,9 @@
   "title": "_lsprof: profiler teardown races concurrent sys.monitoring callbacks (flush_unmatched/profiler_dealloc vs ptrace_leave_call)",
   "description": "cProfile/_lsprof registers a global sys.monitoring tool, so an enabled Profiler receives callbacks from every thread into one shared call-stack state (self->currentProfilerContext / self->profilerEntries). Callbacks and enable/disable/clear are @critical_section-guarded, but profiler_dealloc -> flush_unmatched()/clearEntries() are not, so tearing a profiler down races (and use-after-frees) against in-flight callbacks on other threads.",
   "signatures": [
-    "Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:ptrace_leave_call"
+    "Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:ptrace_leave_call",
+    "Modules/_lsprof.c:Stop | Modules/_lsprof.c:flush_unmatched",
+    "Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:initContext"
   ],
   "sites": [
     "Modules/_lsprof.c flush_unmatched:866 (read: while (pObj->currentProfilerContext) \u2014 in profiler_dealloc:984, NOT critical-section-guarded)",
@@ -53,5 +55,8 @@
     }
   ],
   "assessment": "Reproduces on CURRENT main (build heads/main:bcf98ddbc40). The cProfile FT-safety class was addressed by gh-116738/#138229 (critical sections on the profiling path); this is the residual TEARDOWN edge #138229 did not cover: profiler_dealloc->flush_unmatched/clearEntries has no critical section (tp_dealloc can't easily take one) + a borrowed-ref window in the sys.monitoring dispatch during concurrent drop. Given the maintainers' stance (#125165 NOT_PLANNED; locks 'limit usefulness'), this is a low-priority residual, NOT a standalone headline bug. At most a brief note on gh-116738/#138229 pointing out the teardown gap; not for individual filing.",
-  "disposition": "mostly-addressed-by-gh116738; teardown/borrowed-ref residual; low priority"
+  "disposition": "mostly-addressed-by-gh116738; teardown/borrowed-ref residual; low priority",
+  "fleet02_notes": [
+    "fleet-02: additional signature face(s) folded in: Modules/_lsprof.c:Stop | Modules/_lsprof.c:flush_unmatched; Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:initContext"
+  ]
 }

@@ -1,0 +1,45 @@
+{
+  "id": "TSAN-0015",
+  "slug": "odict-clear-vs-iter",
+  "title": "collections.OrderedDict: iterating a shared odict races with clear() on the linked-list head (odictiter_new vs _odict_clear_nodes)",
+  "description": "OrderedDict keeps insertion order in an internal doubly-linked list; odictiter_new reads the head pointer od_first (then derefs the head node's key) without the per-object lock, while OrderedDict.clear() (@critical_section) nulls od_first/od_last and frees every node. Concurrent iterate-vs-clear on a shared OrderedDict is a data race and a potential use-after-free.",
+  "signatures": [
+    "Objects/odictobject.c:_odict_clear_nodes | Objects/odictobject.c:odictiter_new"
+  ],
+  "sites": [
+    "Objects/odictobject.c odictiter_new:1961 (read: node = reversed ? _odict_LAST(od) : _odict_FIRST(od) -- plain read of od_first/od_last, unlocked)",
+    "Objects/odictobject.c odictiter_new:1962 (deref: Py_NewRef(_odictnode_KEY(node)) -- dereferences head node the clearing thread may have freed = UAF)",
+    "Objects/odictobject.c _odict_clear_nodes:805-806 (write: _odict_FIRST(od)=NULL; _odict_LAST(od)=NULL -- lowered to __tsan_memset; TSan attributes to :806)",
+    "Objects/odictobject.c _odict_clear_nodes:809 (_odictnode_DEALLOC(node): Py_DECREF(node->key); PyMem_Free(node) -- frees the nodes the reader may still hold)",
+    "Objects/odictobject.c odict_iter:1552 (tp_iter entry; calls odictiter_new with NO Py_BEGIN_CRITICAL_SECTION)",
+    "Objects/odictobject.c OrderedDict_clear_impl:1226 (writer; @critical_section so it DOES hold od's lock)"
+  ],
+  "race_kind": "missing critical section on iterator construction vs locked mutator (asymmetric locking); potential use-after-free",
+  "shared_state": "PyODictObject.od_first / od_last (head/tail of the insertion-order doubly-linked list of _ODictNode) and the _ODictNode nodes themselves",
+  "severity": "medium-high (not value-benign: reader dereferences and Py_NewRefs a node clear() may have freed -> potential use-after-free / crash / refcount corruption, distinct from a benign cached-field race)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66 on every run; ~8 threads, fresh populated OrderedDict per round behind a Barrier, half clear+repopulate / half list(od))",
+  "suggested_fix": "take od's per-object critical section around the head/tail read and head-key ref in the iterator path -- annotate odict_iter / odictkeys_iter / items / values @critical_section or wrap odictiter_new's body in Py_BEGIN_CRITICAL_SECTION(od); audit odictiter_iternext likewise",
+  "status": "reported",
+  "upstream_issue": 151627,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/collections-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, heads/main:bcf98ddbc40, --disable-gil --with-thread-sanitizer, Clang 21)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",
+  "notes": "OrderedDict's mutators (clear/setitem/delitem/resize/remove) all run under the per-object critical section (clear is generated @critical_section; helpers assert _Py_CRITICAL_SECTION_ASSERT_OBJECT_LOCKED), but the iterator-construction path (odict_iter/odictkeys_iter/... -> odictiter_new) reads od_first/od_last and the head node's key without locking. The underlying dict is FT-safe, so the gap is specific to the odict linked-list overlay. In scope (normal method-level iterate-vs-clear race, not the out-of-scope concurrent-__init__ class from cpython#127192). Same audit should cover reverse/keys/items/values iterators and odictiter_iternext.",
+  "assessment": "Real UAF bug, ALREADY REPORTED #151627 (PR #151688 pending). Reproduced/confirmed; kept as a catalog vehicle, not for separate filing.",
+  "related_issues": [
+    {
+      "num": 151627,
+      "note": "Crash (UAF) in odictiter_new when an OrderedDict is concurrently iterated and cleared -- exactly this bug"
+    },
+    {
+      "num": 151688,
+      "note": "PR: protect OrderedDict iterator creation (the fix)"
+    }
+  ]
+}

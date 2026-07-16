@@ -56,6 +56,21 @@ See `notes/open-questions-for-umbrella.md`. Q1 (concurrent `list.sort()`) is now
 Yhg1s ruling → promoted to **TSAN-0014**. The remaining note there is the tzset/mktime glibc/TSan
 false positive (resolved, not a bug).
 
+## Fleet 02 additions (TSAN-0015…0021)
+
+`fusil-tsan_fleet_02` (290 dirs; catalog deduped the bulk — TSAN-0013 alone caught 50). Of 45 new
+signature groups, 7 were deep-dived (all reproduced exit 66); the rest are dispositioned in
+`notes/fleet-02-triage.md` (known families, subinterpreter/init out-of-scope, folds).
+
+| id | what | disposition |
+|----|------|-------------|
+| **TSAN-0018** (+**0021**) | **dict split-keys**: `object.__getstate__` and `dict.clear` read a type's shared `dk_nentries` with a plain load while `setattr` bumps it atomically (`split_keys_entry_added`) | **REAL, NEW, filable** — one-line-per-site fix (`LOAD_KEYS_NENTRIES`, which already exists at `dictobject.c:237`). 0021 = the `clear_lock_held` reader face, folded in. |
+| TSAN-0015 | OrderedDict `odictiter_new` (unlocked) vs `clear()` → UAF | already reported **#151627** (PR #151688) |
+| TSAN-0016 | `readline.get_completer()` reads `readlinestate.completer` unlocked vs the locked setter | already reported **#153291** (PR #153362) |
+| TSAN-0019 | `decimal.Context` `clear_flags` vs `repr` on `mpd_context_t.status` | dup of **#149142** (PR #150598) |
+| TSAN-0017 | `_zstd` `flush\|flush` | dup of **TSAN-0002** (same `last_mode`; folded) |
+| TSAN-0020 | `tp_new_wrapper\|tp_new_wrapper` | **out of scope** — OpenSSL-internal libcrypto race (each thread builds its own `SSLContext`); like TSAN-0003 |
+
 ## Cross-check
 
 None of these overlap **#149816** ("22 free-threading race conditions") — that umbrella covers

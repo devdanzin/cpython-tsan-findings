@@ -1,0 +1,41 @@
+{
+  "id": "TSAN-0016",
+  "slug": "readline-global-state",
+  "title": "readline: get_completer() reads module-state completer pointer without the critical section its setter holds",
+  "description": "readline.c keeps the completer/hook callbacks in per-module state (readlinestate.completer, a PyObject*). set_completer() is @critical_section and writes it via set_hook()/Py_XSETREF (readline.c:480); get_completer() is NOT @critical_section and reads state->completer with a plain unsynchronized load (readline.c:899). A getter racing a setter is a data race on CPython-owned module state, plus a latent use-after-free because the getter borrows-then-Py_NewRef()s a pointer the setter may free.",
+  "signatures": [
+    "Modules/readline.c:readline_get_completer_impl | Modules/readline.c:set_hook"
+  ],
+  "sites": [
+    "Modules/readline.c set_hook:480 (WRITE: Py_XSETREF(*hook_var, Py_NewRef(function)) storing state->completer, called under @critical_section from readline_set_completer_impl:885)",
+    "Modules/readline.c readline_get_completer_impl:899 (READ: if (state->completer == NULL) \u2014 no @critical_section; also re-read + incref at :902)"
+  ],
+  "race_kind": "unsynchronized shared module-state pointer (protected setter / unprotected getter asymmetry); latent borrowed-ref use-after-free",
+  "shared_state": "readlinestate.completer (per-module PyObject* callback, PyModule_GetState heap block, single-phase-init module so one instance per interpreter shared across threads)",
+  "severity": "low-to-moderate (data race on a shared PyObject* pointer; value-benign and crash-free in the common case, but a latent use-after-free window when a getter borrows the completer while a concurrent setter drops its last reference)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66 on every run; SUMMARY alternates between readline.c:899 readline_get_completer_impl and readline.c:480 set_hook by scheduling, same racing pair both ways)",
+  "suggested_fix": "add @critical_section to readline.get_completer (and get_pre_input_hook / get_begidx / get_endidx) so the reads take the same per-module critical section the setters already hold; a bare FT_ATOMIC on the pointer would silence TSan but would not close the borrowed-ref/UAF window",
+  "status": "reported",
+  "upstream_issue": 153291,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/builtins-warning_threadsanitizer_data_race-tsanNEW-3"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, v3.15.0b1-852-gbcf98ddbc40, --disable-gil --with-thread-sanitizer)",
+  "notes": "CPython's OWN module state, not GNU libreadline internal globals \u2014 fixable entirely within Modules/readline.c, distinct from the thread-unsafe-C-library class (gh-127081, locale/setlocale). Incomplete free-threading migration: setters were made @critical_section and _history_length uses FT_ATOMIC (readline.c:450/467), but the pointer-field getters were left lockless. Same protected-setter/unprotected-getter asymmetry affects state->pre_input_hook, state->begidx, state->endidx (get_pre_input_hook:581, get_begidx:618, get_endidx:634); begidx/endidx are also written lockless by the on_completion callback at readline.c:1330-1331.",
+  "related_issues": [
+    {
+      "num": 153291,
+      "note": "data race in readline.get_completer() and get_pre_input_hook() -- exactly this bug (incl. the sibling getter)"
+    },
+    {
+      "num": 153362,
+      "note": "PR: gh-153291 fix"
+    }
+  ],
+  "assessment": "Real bug (CPython readlinestate.completer, not libreadline globals), ALREADY REPORTED #153291 (PR #153362). Not for separate filing.",
+  "confirmed_unfixed_on": "local checkout /home/danzin/projects/cpython @ 4f3be1b5777 (newer than build) \u2014 get_completer/get_pre_input_hook/get_begidx/get_endidx still have no @critical_section"
+}
