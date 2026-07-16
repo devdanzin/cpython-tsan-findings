@@ -5,7 +5,9 @@
   "description": "The bundled libexpat parser caches reparse-deferral in the plain 1-byte XML_Bool field m_reparseDeferralEnabled. XML_SetReparseDeferralEnabled writes it (xmlparse.c:3035) while callProcessor, reached on every Parse(), reads it (xmlparse.c:1136); neither the pyexpat nor _elementtree wrapper locks the parser, so a parser object shared across threads that mixes SetReparseDeferralEnabled()/flush() with Parse()/close() is a data race on that byte. Value-benign; expat parsers are single-threaded by design.",
   "signatures": [
     "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:callProcessor",
-    "Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse"
+    "Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse",
+    "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled",
+    "Modules/expat/xmlparse.c:poolGrow | Modules/expat/xmlparse.c:setContext"
   ],
   "sites": [
     "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3035 (write size 1: parser->m_reparseDeferralEnabled = enabled)",
@@ -35,6 +37,7 @@
   "disposition": "expected-dont-share-parser",
   "assessment": "expected/low-value \u2014 bundled single-threaded libexpat; a parser is not thread-shareable by design. Catalog data point, not for individual filing.",
   "fleet02_notes": [
-    "fleet-02: additional signature face(s) folded in: Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse"
+    "fleet-02: additional signature face(s) folded in: Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse",
+    "fleet-02: pyexpat self-races (SetReparseDeferralEnabled|self, poolGrow|setContext) folded in -- same bundled-libexpat parser-state class"
   ]
 }

@@ -15,7 +15,9 @@ TSAN-0008	Modules/_lsprof.c:Stop | Modules/_lsprof.c:flush_unmatched
 TSAN-0008	Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:initContext
 TSAN-0008	Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:ptrace_leave_call
 TSAN-0009	Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse
+TSAN-0009	Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled
 TSAN-0009	Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:callProcessor
+TSAN-0009	Modules/expat/xmlparse.c:poolGrow | Modules/expat/xmlparse.c:setContext
 TSAN-0010	Objects/listobject.c:list_resize | Python/marshal.c:w_complex_object
 TSAN-0010	Python/marshal.c:w_complex_object | Python/marshal.c:w_complex_object
 TSAN-0011	Python/sysmodule.c:should_audit | Python/sysmodule.c:sys_addaudithook_impl

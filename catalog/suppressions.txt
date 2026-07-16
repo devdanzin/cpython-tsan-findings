@@ -24,3 +24,26 @@
 # SemLock PyObjects are distinct + correctly refcounted). Same class as the tzset false positive.
 # Confirmed by glibc-2.43 disassembly; see reports/TSAN-0003-multiprocessing-semlock-dealloc/.
 Modules/_multiprocessing/semaphore.c:_multiprocessing_SemLock_impl \| Objects/object.c:_Py_Dealloc
+
+# --- known / out-of-scope families (fleet-02); suppressed so overnight fleets surface only
+#     genuinely-new signatures. Each is documented in notes/fleet-02-triage.md. ---
+
+# Subinterpreter machinery -- out of scope per cpython#143232 (don't file FT subinterpreter races).
+# Concurrent interpreter creation / per-interpreter module init.
+Python/pystate.c:PyInterpreterState_Head \| Python/pystate.c:_PyInterpreterState_New
+Modules/posixmodule.c:posixmodule_exec \| Modules/posixmodule.c:posixmodule_exec
+Objects/structseq.c:structseq_new_impl \| Objects/structseq.c:structseq_new_impl
+Objects/exceptions.c:_PyExc_InitTypes
+
+# tracemalloc -- tracemalloc.start()/stop() swap the allocator (PyMem_SetAllocator) racing
+# concurrent allocation. Known / by-design: devdanzin cpython#126315. Any PyMem_SetAllocator race.
+Objects/obmalloc.c:PyMem_SetAllocator
+
+# locale -- thread-unsafe libc setlocale/localeconv, tracked in cpython#127081 (not a per-call
+# CPython fix). Same bucket as the tzset glibc case.
+Modules/_localemodule.c:_locale_setlocale_impl
+Modules/_localemodule.c:locale_decode_monetary
+
+# Concurrent __init__ of a SHARED object -- unsupported per cpython#127192. (Re-init of one shared
+# bytearray from two threads.)
+Objects/bytearrayobject.c:bytearray___init___impl \| Objects/bytearrayobject.c:bytearray___init___impl
