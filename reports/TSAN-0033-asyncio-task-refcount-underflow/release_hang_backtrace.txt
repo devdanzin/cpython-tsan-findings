@@ -1,0 +1,98 @@
+# TSAN-0033 on a RELEASE free-threaded build (release-ft-nojit, no Py_DEBUG, no sanitizer).
+# Same repro as repro.py (N=4, ITERS=40 => only 160 transient Tasks). Instead of the
+# Py_DEBUG validate_refcounts abort, the process WEDGES: gdb attached after 12s.
+# (ptrace_scope=1 here, so the repro calls prctl(PR_SET_PTRACER_ANY) to permit attach.)
+#
+# t1 spins in the GC's mimalloc heap walk; every other thread is parked on the runtime
+# mutex waiting for it. 100% CPU, never completes (>150s observed for work the control
+# finishes in 0.11s).
+
+[New LWP 2698936]
+[New LWP 2698935]
+[New LWP 2698934]
+[New LWP 2698933]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+__syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+
+warning: 56	../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S: No such file or directory
+line to your configuration file "/home/danzin/.config/gdb/gdbinit".
+line to your configuration file "/home/danzin/.config/gdb/gdbinit".
+"Auto-loading safe path" section in the GDB manual.  E.g., run from the shell:
+  Id   Target Id                                    Frame 
+* 1    Thread 0x7ffff7e6d780 (LWP 2698931) "python" __syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+  2    Thread 0x7fffeeffe6c0 (LWP 2698936) "t3"     __syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+  3    Thread 0x7fffeffff6c0 (LWP 2698935) "t2"     __syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+  4    Thread 0x7ffff5d3b6c0 (LWP 2698934) "t1"     _mi_page_free_collect (page=page@entry=0x363ac000b88, force=<optimized out>) at Objects/mimalloc/page.c:245
+  5    Thread 0x7ffff6d3c6c0 (LWP 2698933) "t0"     __syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+
+Thread 5 (Thread 0x7ffff6d3c6c0 (LWP 2698933) "t0"):
+#0  __syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+#1  0x00007ffff7ca05ec in __internal_syscall_cancel (a1=a1@entry=140737334457592, a2=<optimized out>, a3=a3@entry=0, a4=a4@entry=0, a5=a5@entry=0, a6=a6@entry=4294967295, nr=202) at ./nptl/cancellation.c:49
+#2  0x00007ffff7ca09c7 in __futex_abstimed_wait_common64 (private=<optimized out>, futex_word=0x7ffff6d3b4f8, expected=0, op=<optimized out>, abstime=0x0, cancel=true) at ./nptl/futex-internal.c:57
+#3  __futex_abstimed_wait_common (futex_word=0x7ffff6d3b4f8, expected=0, clockid=0, abstime=0x0, private=<optimized out>, cancel=true) at ./nptl/futex-internal.c:87
+#4  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7ffff6d3b4f8, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=<optimized out>) at ./nptl/futex-internal.c:139
+#5  0x00007ffff7cac94f in do_futex_wait (sem=sem@entry=0x7ffff6d3b4f8, abstime=0x0, clockid=0) at ./nptl/sem_waitcommon.c:111
+#6  0x00007ffff7cac9e8 in __new_sem_wait_slow64 (sem=0x7ffff6d3b4f8, abstime=0x0, clockid=0) at ./nptl/sem_waitcommon.c:183
+#7  0x00007ffff7caca6d in __new_sem_wait (sem=<optimized out>) at ./nptl/sem_wait.c:42
+#8  0x0000555555819c2d in _PySemaphore_Wait (sema=sema@entry=0x7ffff6d3b4f8, timeout=393, timeout@entry=-1) at Python/parking_lot.c:174
+#9  0x0000555555819dde in _PyParkingLot_Park (addr=addr@entry=0x3639c114030, expected=expected@entry=0x7ffff6d3b57c, size=size@entry=4, timeout_ns=timeout_ns@entry=-1, park_arg=park_arg@entry=0x0, detach=detach@entry=0) at Python/parking_lot.c:340
+#10 0x00005555558259fd in tstate_wait_attach (tstate=<optimized out>) at Python/pystate.c:2243
+#11 _PyThreadState_Attach (tstate=tstate@entry=0x3639c114000) at Python/pystate.c:2281
+
+Thread 4 (Thread 0x7ffff5d3b6c0 (LWP 2698934) "t1"):
+#0  _mi_page_free_collect (page=page@entry=0x363ac000b88, force=<optimized out>) at Objects/mimalloc/page.c:245
+#1  0x00005555556ca56d in _mi_heap_area_init (area=0x7ffff5d39af8, page=0x363ac000b88) at Objects/mimalloc/heap.c:646
+#2  mi_heap_visit_areas_page (heap=0x3639c112840, page=0x363ac000b88, pq=<optimized out>, vfun=<optimized out>, arg=<optimized out>) at Objects/mimalloc/heap.c:663
+#3  mi_heap_visit_pages (heap=0x3639c112840, fn=<optimized out>, arg1=<optimized out>, arg2=<optimized out>) at Objects/mimalloc/heap.c:46
+#4  mi_heap_visit_areas (heap=0x3639c112840, visitor=<optimized out>, arg=<optimized out>) at Objects/mimalloc/heap.c:670
+#5  mi_heap_visit_blocks (heap=heap@entry=0x3639c112840, visit_blocks=true, visitor=visitor@entry=0x5555557e9b00 <update_refs>, arg=arg@entry=0x7ffff5d3a440) at Objects/mimalloc/heap.c:695
+#6  0x00005555557e66f0 in gc_visit_heaps_lock_held (interp=0x555555b4c400 <_PyRuntime+158784>, visitor=0x5555557e9b00 <update_refs>, arg=0x7ffff5d3a440) at Python/gc_free_threading.c:395
+#7  gc_visit_heaps (interp=interp@entry=0x555555b4c400 <_PyRuntime+158784>, visitor=0x5555557e9b00 <update_refs>, arg=arg@entry=0x7ffff5d3a440) at Python/gc_free_threading.c:429
+#8  0x00005555557e71b7 in deduce_unreachable_heap (interp=0x555555b4c400 <_PyRuntime+158784>, state=0x7ffff5d3a440) at Python/gc_free_threading.c:1447
+#9  gc_collect_internal (interp=0x555555b4c400 <_PyRuntime+158784>, state=0x7ffff5d3a440, generation=2) at Python/gc_free_threading.c:2119
+#10 gc_collect_main (tstate=0x3639c118000, generation=2, reason=<optimized out>) at Python/gc_free_threading.c:2257
+#11 0x0000555555856001 in gc_collect_impl (generation=<optimized out>, module=<optimized out>) at Modules/gcmodule.c:93
+
+Thread 3 (Thread 0x7fffeffff6c0 (LWP 2698935) "t2"):
+#0  __syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+#1  0x00007ffff7ca05ec in __internal_syscall_cancel (a1=a1@entry=140737219911640, a2=<optimized out>, a3=a3@entry=0, a4=a4@entry=0, a5=a5@entry=0, a6=a6@entry=4294967295, nr=202) at ./nptl/cancellation.c:49
+#2  0x00007ffff7ca09c7 in __futex_abstimed_wait_common64 (private=<optimized out>, futex_word=0x7fffefffdfd8, expected=0, op=<optimized out>, abstime=0x0, cancel=true) at ./nptl/futex-internal.c:57
+#3  __futex_abstimed_wait_common (futex_word=0x7fffefffdfd8, expected=0, clockid=0, abstime=0x0, private=<optimized out>, cancel=true) at ./nptl/futex-internal.c:87
+#4  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7fffefffdfd8, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=<optimized out>) at ./nptl/futex-internal.c:139
+#5  0x00007ffff7cac94f in do_futex_wait (sem=sem@entry=0x7fffefffdfd8, abstime=0x0, clockid=0) at ./nptl/sem_waitcommon.c:111
+#6  0x00007ffff7cac9e8 in __new_sem_wait_slow64 (sem=0x7fffefffdfd8, abstime=0x0, clockid=0) at ./nptl/sem_waitcommon.c:183
+#7  0x00007ffff7caca6d in __new_sem_wait (sem=<optimized out>) at ./nptl/sem_wait.c:42
+#8  0x0000555555819c2d in _PySemaphore_Wait (sema=sema@entry=0x7fffefffdfd8, timeout=393, timeout@entry=-1) at Python/parking_lot.c:174
+#9  0x0000555555819dde in _PyParkingLot_Park (addr=addr@entry=0x3639c11c030, expected=expected@entry=0x7fffefffe05c, size=size@entry=4, timeout_ns=timeout_ns@entry=-1, park_arg=park_arg@entry=0x0, detach=detach@entry=0) at Python/parking_lot.c:340
+#10 0x00005555558259fd in tstate_wait_attach (tstate=<optimized out>) at Python/pystate.c:2243
+#11 _PyThreadState_Attach (tstate=tstate@entry=0x3639c11c000) at Python/pystate.c:2281
+
+Thread 2 (Thread 0x7fffeeffe6c0 (LWP 2698936) "t3"):
+#0  __syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+#1  0x00007ffff7ca05ec in __internal_syscall_cancel (a1=a1@entry=140737203131128, a2=<optimized out>, a3=a3@entry=0, a4=a4@entry=0, a5=a5@entry=0, a6=a6@entry=4294967295, nr=202) at ./nptl/cancellation.c:49
+#2  0x00007ffff7ca09c7 in __futex_abstimed_wait_common64 (private=<optimized out>, futex_word=0x7fffeeffd2f8, expected=0, op=<optimized out>, abstime=0x0, cancel=true) at ./nptl/futex-internal.c:57
+#3  __futex_abstimed_wait_common (futex_word=0x7fffeeffd2f8, expected=0, clockid=0, abstime=0x0, private=<optimized out>, cancel=true) at ./nptl/futex-internal.c:87
+#4  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7fffeeffd2f8, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=<optimized out>) at ./nptl/futex-internal.c:139
+#5  0x00007ffff7cac94f in do_futex_wait (sem=sem@entry=0x7fffeeffd2f8, abstime=0x0, clockid=0) at ./nptl/sem_waitcommon.c:111
+#6  0x00007ffff7cac9e8 in __new_sem_wait_slow64 (sem=0x7fffeeffd2f8, abstime=0x0, clockid=0) at ./nptl/sem_waitcommon.c:183
+#7  0x00007ffff7caca6d in __new_sem_wait (sem=<optimized out>) at ./nptl/sem_wait.c:42
+#8  0x0000555555819c2d in _PySemaphore_Wait (sema=sema@entry=0x7fffeeffd2f8, timeout=393, timeout@entry=-1) at Python/parking_lot.c:174
+#9  0x0000555555819dde in _PyParkingLot_Park (addr=addr@entry=0x555555b4ee38 <_PyRuntime+169592>, expected=expected@entry=0x7fffeeffd3b7, size=size@entry=1, timeout_ns=timeout_ns@entry=-1, park_arg=park_arg@entry=0x7fffeeffd378, detach=detach@entry=1) at Python/parking_lot.c:340
+#10 0x000055555581238a in _PyMutex_LockTimed (m=0x555555b4ee38 <_PyRuntime+169592>, timeout=-1, flags=_PY_LOCK_DETACH) at Python/lock.c:138
+#11 0x0000555555825cee in _PyMutex_Lock (m=0x555555b4ee38 <_PyRuntime+169592>) at ./Include/cpython/pylock.h:56
+
+Thread 1 (Thread 0x7ffff7e6d780 (LWP 2698931) "python"):
+#0  __syscall_cancel_arch () at ../sysdeps/unix/sysv/linux/x86_64/syscall_cancel.S:56
+#1  0x00007ffff7ca05ec in __internal_syscall_cancel (a1=a1@entry=140737488341496, a2=<optimized out>, a3=a3@entry=0, a4=a4@entry=0, a5=a5@entry=0, a6=a6@entry=4294967295, nr=202) at ./nptl/cancellation.c:49
+#2  0x00007ffff7ca09c7 in __futex_abstimed_wait_common64 (private=<optimized out>, futex_word=0x7fffffffc9f8, expected=0, op=<optimized out>, abstime=0x0, cancel=true) at ./nptl/futex-internal.c:57
+#3  __futex_abstimed_wait_common (futex_word=0x7fffffffc9f8, expected=0, clockid=0, abstime=0x0, private=<optimized out>, cancel=true) at ./nptl/futex-internal.c:87
+#4  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7fffffffc9f8, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=<optimized out>) at ./nptl/futex-internal.c:139
+#5  0x00007ffff7cac94f in do_futex_wait (sem=sem@entry=0x7fffffffc9f8, abstime=0x0, clockid=0) at ./nptl/sem_waitcommon.c:111
+#6  0x00007ffff7cac9e8 in __new_sem_wait_slow64 (sem=0x7fffffffc9f8, abstime=0x0, clockid=0) at ./nptl/sem_waitcommon.c:183
+#7  0x00007ffff7caca6d in __new_sem_wait (sem=<optimized out>) at ./nptl/sem_wait.c:42
+#8  0x0000555555819c2d in _PySemaphore_Wait (sema=sema@entry=0x7fffffffc9f8, timeout=393, timeout@entry=-1) at Python/parking_lot.c:174
+#9  0x0000555555819dde in _PyParkingLot_Park (addr=<optimized out>, expected=expected@entry=0x7fffffffca77, size=size@entry=1, timeout_ns=-1, park_arg=park_arg@entry=0x0, detach=<optimized out>) at Python/parking_lot.c:340
+#10 0x00005555558126ed in PyEvent_WaitTimed (evt=0x7fffffffc9f8, evt@entry=0x3639c0a03a9, timeout_ns=140737350650594, timeout_ns@entry=-1, detach=-1, detach@entry=1) at Python/lock.c:339
+#11 0x00005555558cae90 in ThreadHandle_join (self=0x3639c0a0370, timeout_ns=<optimized out>) at ./Modules/_threadmodule.c:570
+[Inferior 1 (process 2698931) detached]

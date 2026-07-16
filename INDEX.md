@@ -88,6 +88,31 @@ filed — the FT-hardening effort is fast. New/umbrella-worthy in **bold**.
 | TSAN-0028 | RLock `repr` reads `lock.thread` plainly vs atomic writer | already reported+**fixed #153292** / PR #153299 |
 | TSAN-0022 | elementtree `_setevents` | **folded** → TSAN-0013 (list faces) + TSAN-0009 (parser face) |
 
+## Fleet 03 additions (TSAN-0031…0033)
+
+`fusil-tsan_fleet_03` (6 inst, **917 crash dirs**, overnight 2026-07-16). The catalog deduped the
+bulk (24 known races; 9 capped at the 30-vehicle sample cap). Of 42 first-pass "new" signature
+groups: folded ~25 signature-variance faces into existing entries, suppressed 3 known FP/out-of-scope
+families (tzset glibc, OpenSSL, subinterpreter) → **3 genuinely-new findings**. Final state: **0 new
+signature groups, 0 framework**. Full triage in `notes/fleet-03-triage.md`.
+
+This fleet also exposed **two dedup bugs in fusil's `tsan_dedup.py`**, both now fixed (branch
+`tsan-dedup-atomic-stanza-parse`): (1) the `ACCESS` regex never matched TSan's lowercased
+**`Previous atomic write`** header, so the 2nd stanza was dropped and the 1st duplicated into a
+fabricated `A | A` signature — hitting the reader-vs-atomic-writer shape that is most of this catalog
+(**18% of fleet-03's race dirs**), and mislabeling real RLock races as `tsanFRAME`; (2) mis-ordered
+signatures in two metas silently never matched. Catalog signatures were **re-derived from evidence**
+across all 1248 dirs of fleets 01–03. Two corrections fell out: TSAN-0014's `binarysort | binarysort`
+was itself an artifact (true form `_Py_atomic_load_ptr | binarysort` confirms **sort-vs-read**), and a
+**real bug was being suppressed** as "concurrent `bytearray.__init__`" when it is actually a
+shared-list reader face of TSAN-0013.
+
+| id | what | disposition |
+|----|------|-------------|
+| **TSAN-0033** | **`_asyncio.Task` refcount-0-while-GC-tracked premature free.** `TaskObj_dealloc` (`_asynciomodule.c:2963`) runs the finalizer + `unregister_task()` (which for a Task freed on a non-creator thread does a full `_PyEval_StopTheWorld`) **before** `PyObject_GC_UnTrack` (:2974); a concurrent `gc.collect()` stops the world in that window and `validate_refcounts` aborts on the refcount-0 tracked Task | **NEW, HIGH sev (memory-safety + liveness).** 58 vehicles. Reproduced 8/8 under TSan, 10/10 on plain debug-ft-nojit. **NOT Py_DEBUG-only — on `release-ft-nojit` it WEDGES THE INTERPRETER 5/5** (GC spins forever in `_mi_page_free_collect` ← `mi_heap_visit_blocks(update_refs)` ← `gc_collect_main`, 100% CPU, >150s; all other threads park on the runtime mutex), and a **segfault** was observed; identical-shape control completes in 0.11s (`release_hang_backtrace.txt`). Directly related to gh-142556 (its fix *created* this ordering) but distinct + unfiled. gh-116738 remit. Fix: untrack first in `TaskObj_dealloc`. NOT a data race — a crash/hang (no race signature; `crash_signature` in meta) |
+| **TSAN-0031** | **`_elementtree.TreeBuilder` shared internal state.** every feed method (`start`/`data`/`end`/`comment`/`pi` → `treebuilder_handle_*` + `treebuilder_flush_data`/`extend_element_text_or_tail`) mutates the builder's `data`/`last`/`this`/`index`/`stack` fields with **no critical section** (module has zero); two threads feeding one shared builder race | **NEW, moderate** (benign-face reproduced, but unsynchronized refcount RMW on shared `PyObject*` fields + non-atomic `index++/--` → latent UAF/OOB). 18 vehicles, 8 signatures, reproduced 8/8. Closest prior art = **abandoned** PR gh-145569 (only `handle_end`). gh-116738 remit; distinct from TSAN-0009/0013/0022. Fix: `@critical_section` the whole feed path |
+| **TSAN-0032** | `io.BufferedReader` iterator: `buffered_iternext`'s leading `CHECK_INITIALIZED` reads `self->ok` (`bufferedio.c:1504`) **before** it opens its own critical section (:1512), racing `_io._Buffered.detach`'s `self->ok = 0` (:628, which *is* `@critical_section`) | **RESIDUAL of a merged fix — already reported #149816 item #84** (PR **#150295** wrapped only `_buffered_readline`, left the leading check unprotected → incomplete). Reproduced 8/8. Latent NULL-deref (stale `ok==1` → detach nulls `raw` → reader derefs) — same shape as #153296 (StringIO). Recommend reopening #84 / follow-up PR |
+
 ## Cross-check
 
 None of these overlap **#149816** ("22 free-threading race conditions") — that umbrella covers

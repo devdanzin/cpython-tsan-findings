@@ -4,9 +4,9 @@
   "title": "typeobject: obj.__weakref__ (subtype_getweakref) reads the weakref list head without a lock; races with weakref create/destroy",
   "description": "subtype_getweakref (the __weakref__ getset) reads the object's weakref list head (*weaklistptr at obj+tp_weaklistoffset) with a plain unlocked non-atomic load and Py_NewRefs the raw head pointer. insert_head (create) and clear_weakref_lock_held/FT_ATOMIC_STORE_PTR (destroy) mutate that same slot under LOCK_WEAKREFS. Reading obj.__weakref__ concurrently with weakref.ref(obj)/teardown on a shared object is a data race on the list head.",
   "signatures": [
-    "Objects/typeobject.c:subtype_getweakref | Objects/typeobject.c:subtype_getweakref",
     "Objects/typeobject.c:subtype_getweakref | Objects/weakrefobject.c:insert_head",
-    "Objects/typeobject.c:subtype_getweakref | Objects/weakrefobject.c:clear_weakref_lock_held"
+    "Objects/typeobject.c:subtype_getweakref | Objects/weakrefobject.c:clear_weakref_lock_held",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr | Objects/typeobject.c:subtype_getweakref"
   ],
   "sites": [
     "Objects/typeobject.c subtype_getweakref:4079 (READ: `if (*weaklistptr == NULL)` -- plain, unlocked, non-atomic load of the weakref list head)",

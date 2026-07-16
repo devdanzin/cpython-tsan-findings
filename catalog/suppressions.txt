@@ -44,6 +44,40 @@ Objects/obmalloc.c:PyMem_SetAllocator
 Modules/_localemodule.c:_locale_setlocale_impl
 Modules/_localemodule.c:locale_decode_monetary
 
-# Concurrent __init__ of a SHARED object -- unsupported per cpython#127192. (Re-init of one shared
-# bytearray from two threads.)
-Objects/bytearrayobject.c:bytearray___init___impl \| Objects/bytearrayobject.c:bytearray___init___impl
+# Concurrent __init__ of a SHARED object -- unsupported per cpython#127192.
+#
+# WITHDRAWN 2026-07-16: this suppression was based on a PARSER ARTIFACT. fusil's tsan_dedup
+# ACCESS regex did not match the "Previous atomic write" stanza header, so the 2nd stanza was
+# dropped and the 1st duplicated -- fabricating the symmetric
+# `bytearray___init___impl | bytearray___init___impl` signature that looked like two threads
+# re-initialising one shared bytearray. With the parser fixed, those same 10 vehicles resolve to
+#   Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/bytearrayobject.c:bytearray___init___impl
+# i.e. `bytearray(shared_list)` READING the source list while another thread appends to it
+# (list_resize's atomic ob_item publish) -- a shared-LIST reader face of TSAN-0013, which is a
+# real bug (Yhg1s ruling), NOT concurrent __init__. Suppressing it was hiding a genuine finding.
+# Nothing from the concurrent-__init__ class is suppressed anymore; re-add only if a *true*
+# (post-fix) signature genuinely shows two __init__ sites racing.
+
+# --- fleet-03 additions (2026-07-16) ---
+
+# glibc/libc-internal false positive: time.tzset()/time.mktime() -> glibc tzset_internal free()s and
+# strdup()s tzname[] under glibc's own uninstrumented tzset_lock (an lll lock TSan can't see). The
+# racing CPython frame collapses to the generic cfunction_vectorcall_NOARGS on BOTH sides because
+# parse_report strips the libc (free/tzset_internal) frames. Same class as TSAN-0003 / the tzset
+# reproducer; confirmed a pure-C glibc repro (no Python) also races. Anchored to the both-collapsed
+# form so a real NOARGS-cfunction race (which would carry a distinct frame on one side) still surfaces.
+# Proper long-term fix is teaching tsan_dedup.parse_report to keep the innermost libc frame.
+^Objects/methodobject.c:cfunction_vectorcall_NOARGS \| Objects/methodobject.c:cfunction_vectorcall_NOARGS$
+
+# Foreign-C-library false positive: OpenSSL. Concurrently building ssl.SSLContext objects races
+# inside libcrypto (memcmp <- libcrypto.so.3 <- tp_new_wrapper); each thread makes its OWN SSLContext,
+# the shared state is an OpenSSL-internal cache, not CPython's. See TSAN-0020. Nearest symbolized
+# CPython frame collapses to tp_new_wrapper on both sides (libcrypto is stripped). Anchored to the
+# both-collapsed form. Not CPython's to fix.
+^Objects/typeobject.c:tp_new_wrapper \| Objects/typeobject.c:tp_new_wrapper$
+
+# Subinterpreter machinery -- out of scope per cpython#143232. Additional pairings seen in fleet-03
+# from _interpchannels / _interpreters (structseq construction + interpreter-state whence).
+Objects/listobject.c:list_resize \| Objects/structseq.c:structseq_new_impl
+Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release \| Objects/structseq.c:structseq_new_impl
+Python/pystate.c:_PyInterpreterState_GetWhence \| Python/pystate.c:_PyInterpreterState_SetWhence

@@ -4,12 +4,13 @@
   "title": "list: non-atomic item/size reads race list_resize's atomic publish on a shared list (Py_SIZE / bytes_join / marshal readers)",
   "description": "On a shared list, list.append/pop -> list_resize publishes ob_item/ob_size with atomic release/relaxed stores, but many readers load them with plain non-atomic access (Py_SIZE in UNPACK_SEQUENCE, PyList_GET_ITEM in stringlib_bytes_join and marshal's w_complex_object). Concurrent read + resize is a data race. RULED A BUG by Thomas Wouters (Yhg1s) 2026-07-15.",
   "signatures": [
-    "Include/object.h:_Py_SIZE_impl | Include/object.h:_Py_SIZE_impl",
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Include/object.h:_Py_SIZE_impl",
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/stringlib/join.h:stringlib_bytes_join",
     "Objects/listobject.c:list_resize | Objects/stringlib/join.h:stringlib_bytes_join",
     "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Objects/listobject.c:list_resize",
-    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release"
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl",
+    "Objects/bytearrayobject.c:bytearray___init___impl | Objects/listobject.c:list_resize",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/bytearrayobject.c:bytearray___init___impl"
   ],
   "sites": [
     "Include/object.h _Py_SIZE_impl (plain Py_SIZE read, e.g. UNPACK_SEQUENCE)",

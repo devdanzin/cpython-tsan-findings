@@ -5,7 +5,7 @@
   "description": "object.__getstate__ (object_getstate_default -> _PyObject_IsInstanceDictEmpty) iterates the type's shared-keys with a plain loop bound `i < keys->dk_nentries`; a concurrent setattr adding a NEW attribute name inserts a key and bumps dk_nentries via split_keys_entry_added's _Py_atomic_store_ssize_relaxed. The write was deliberately made atomic (comment: racing with reads) but this reader omitted the matching LOAD_KEYS_NENTRIES atomic load. Pickling/copying an object while another thread does setattr is a data race on the type's shared-keys dk_nentries.",
   "signatures": [
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/typeobject.c:object_getstate_default",
-    "Objects/dictobject.c:clear_lock_held | Objects/dictobject.c:clear_lock_held"
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:clear_lock_held"
   ],
   "sites": [
     "Objects/dictobject.c split_keys_entry_added:248 (WRITE, atomic: _Py_atomic_store_ssize_relaxed(&keys->dk_nentries, keys->dk_nentries + 1))",

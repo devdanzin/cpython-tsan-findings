@@ -1,0 +1,17 @@
+Python/gc_free_threading.c:1083: validate_refcounts: Assertion "_Py_REFCNT(((PyObject*)((op)))) > 0" failed: tracked objects must have a reference count > 0
+Enable tracemalloc to get the memory block allocation traceback
+
+object address  : 0x7fffc0210ca0
+object refcount : 0
+object type     : 0x7fffb6ab7810
+object type name: _asyncio.Task
+object repr     : <refcnt 0 at 0x7fffc0210ca0>
+
+Fatal Python error: _PyObject_AssertFailed: _PyObject_AssertFailed
+Python runtime state: initialized
+
+Stack (most recent call first):
+  File "/home/danzin/projects/cpython-tsan-findings/reports/TSAN-0033-asyncio-task-refcount-underflow/repro.py", line 65 in worker
+  File "/home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-tsan/Lib/threading.py", line 1160 in run
+  File "/home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-tsan/Lib/threading.py", line 1218 in _bootstrap_inner
+  File "/home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-tsan/Lib/threading.py", line 1180 in _bootstrap

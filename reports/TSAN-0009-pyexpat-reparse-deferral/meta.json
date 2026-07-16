@@ -8,7 +8,11 @@
     "Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse",
     "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled",
     "Modules/expat/xmlparse.c:poolGrow | Modules/expat/xmlparse.c:setContext",
-    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl"
+    "Modules/expat/xmlparse.c:expat_malloc | Modules/expat/xmlparse.c:expat_malloc",
+    "Modules/pyexpat.c:xmlparse_handler_setter | Modules/pyexpat.c:xmlparse_handler_setter",
+    "Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer | Modules/expat/xmlparse.c:PyExpat_XML_GetCurrentColumnNumber",
+    "Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer | Modules/expat/xmlparse.c:PyExpat_XML_GetCurrentLineNumber",
+    "Modules/pyexpat.c:xmlparse_buffer_text_setter | Objects/descrobject.c:getset_set"
   ],
   "sites": [
     "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3035 (write size 1: parser->m_reparseDeferralEnabled = enabled)",

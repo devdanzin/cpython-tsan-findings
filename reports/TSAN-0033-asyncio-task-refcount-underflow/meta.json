@@ -1,0 +1,65 @@
+{
+  "id": "TSAN-0033",
+  "slug": "asyncio-task-refcount-underflow",
+  "title": "TaskObj_dealloc leaves an _asyncio.Task refcount-0 while still GC-tracked across a _PyEval_StopTheWorld, aborting a concurrent gc.collect() (validate_refcounts)",
+  "description": "On the free-threaded build, TaskObj_dealloc (Modules/_asynciomodule.c:2963) runs the Task finalizer and then unregister_task() -- which for a Task deallocated on a thread other than its creator (task->task_tid != _Py_ThreadId()) performs a full _PyEval_StopTheWorld() -- BEFORE calling PyObject_GC_UnTrack(self) at line 2974. During that window the Task is at refcount 0 yet still on the GC tracked list. A gc.collect() on another thread stops the world at a safe point inside that window and its Py_DEBUG invariant check validate_refcounts() (Python/gc_free_threading.c:1083) finds the refcount-0 tracked _asyncio.Task and aborts via _PyObject_AssertFailed (SIGABRT / exit 134). Premature-free / use-after-free class, not a TSan data-race stanza. Isolating control: FutureObj_dealloc has the same finalize-before-untrack shape but does NOT reproduce (0/8) -- the only extra pre-untrack work in TaskObj_dealloc is unregister_task's stop-the-world. A malformed Task([1,2,3]) fails Task.__init__ at the coroutine check (line 2311) before task_tid is assigned (line 2334), so task_tid stays 0 and EVERY transient Task takes the stop-the-world branch, making the crash reliable at just 2 threads.",
+  "signatures": [],
+  "crash_signature": "gc_free_threading.c:1083 validate_refcounts _Py_REFCNT>0 | _asyncio.Task",
+  "sites": [
+    "Modules/_asynciomodule.c TaskObj_dealloc:2963-2981 (finalizer 2966, unregister_task 2971, PyObject_GC_UnTrack deferred to 2974)",
+    "Modules/_asynciomodule.c unregister_task:2200-2220 (cross-thread branch: task_tid != _Py_ThreadId() -> _PyEval_StopTheWorld while refcount-0-and-tracked)",
+    "Modules/_asynciomodule.c _asyncio_Task___init___impl:2311-2334 (coroutine check at 2311-2321 rejects non-coroutine arg BEFORE task_tid=_Py_ThreadId() at 2334, so malformed Tasks keep task_tid==0)",
+    "Modules/_asynciomodule.c FutureObj_dealloc:1786-1799 (control: same finalize-before-untrack shape, untracks immediately after finalizer, does NOT reproduce)",
+    "Python/gc_free_threading.c validate_refcounts:1083 (the aborting Py_DEBUG GC invariant: every GC-tracked object must have refcount > 0)"
+  ],
+  "race_kind": "refcount-underflow / premature free of a shared _asyncio.Task (validate_refcounts GC abort; not a TSan data-race stanza)",
+  "shared_state": "an _asyncio.Task object's own reference count vs its GC tracked-list membership: TaskObj_dealloc holds the Task at refcount 0 while still GC-tracked across the finalizer and unregister_task's _PyEval_StopTheWorld, before PyObject_GC_UnTrack",
+  "severity": "HIGH (memory-safety / liveness). NOT a debug-only assertion: on a RELEASE free-threaded build (no Py_DEBUG, no sanitizer) the same repro WEDGES THE WHOLE INTERPRETER -- a thread spins forever inside the GC's mimalloc heap walk (_mi_page_free_collect <- mi_heap_visit_blocks(update_refs) <- deduce_unreachable_heap <- gc_collect_main) at 100% CPU while every other thread parks on the runtime mutex -- and has also been observed to SEGFAULT (core dumped). The Py_DEBUG validate_refcounts abort is CPython detecting the same invariant violation early.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "very high: 8/8 SIGABRT (exit 134) under the TSan wrapper on debug-ft-nojit-tsan; 10/10 SIGABRT on plain debug-ft-nojit (no TSan); 8/8 at N=2 threads. Aborts via validate_refcounts before any data-race stanza. Original _asyncio vehicle source.py: 8/8 under TSan, 8/10 plain. On RELEASE (release-ft-nojit): wedges 5/5 at N=4/ITERS=40 (GC spins in mimalloc, whole interpreter stalls); segfault observed at ITERS=150. See release_hang_backtrace.txt.",
+  "suggested_fix": "Move PyObject_GC_UnTrack(self) to the top of TaskObj_dealloc, before PyObject_CallFinalizerFromDealloc and unregister_task, matching the standard CPython dealloc discipline (subtype_dealloc untracks first). An object at refcount 0 must not remain on the GC tracked list across a safe point / _PyEval_StopTheWorld. Compatible with the gh-142556 fix that keeps unregister_task after finalization (resurrection re-tracks). Narrower alternative: untrack immediately before unregister_task (closes the dominant stop-the-world window but still runs the finalizer while tracked-at-refcount-0).",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-16",
+  "found_in": "fusil-tsan_fleet_03",
+  "vehicles": [
+    "inst-01/python/_asyncio-assertion-tsanNOPARSE-2",
+    "inst-01/python/_asyncio-assertion-tsanNOPARSE",
+    "inst-01/python/asyncio_tasks-assertion-tsanNOPARSE"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40, Jul 4 2026, Clang 21). Also reproduced on debug-ft-nojit (plain free-threaded debug, no TSan) at the same commit.",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current tip of the build, Jul 4 2026)",
+  "notes": "The current TaskObj_dealloc ordering (finalize -> unregister_task -> untrack) was introduced by commit 42d2bedb875 (gh-142556 fix, PR #142565, Kumar Aditya, Dec 2025) which moved unregister_task after finalization to fix a re-registration UAF. That fix left PyObject_GC_UnTrack last, which is the window this bug exploits. FutureObj_dealloc is the isolating control (0/8). Malformed Task([1,2,3]) is the direct trigger because task_tid is set (line 2334) only after the coroutine check (line 2311) rejects the arg. Falls in gh-116738's _asyncio FT-hardening remit; NOT among gh-149816's 22 (its body has no asyncio/Task). RELEASE-BUILD CHECK 2026-07-16: the finding is NOT Py_DEBUG-only. Without validate_refcounts to catch it early, the refcount-0-but-still-GC-tracked Task corrupts the mimalloc page state that the GC's update_refs heap walk traverses, so gc.collect() spins forever inside _mi_page_free_collect and the entire interpreter wedges (all other threads park on the runtime mutex); a segfault was also observed. An identical-shape control (plain raising __init__, no STW in dealloc) completes in 0.11s, isolating this to the _asyncio.Task dealloc path.",
+  "related_issues": [
+    {
+      "num": 142556,
+      "note": "CLOSED (fixed by #142565 / 42d2bedb875). Same function TaskObj_dealloc. Its fix created the current finalize->unregister->untrack ordering; distinct bug (re-registration UAF via call_exception_handler, single-threaded). Directly related -- the fix left untrack last."
+    },
+    {
+      "num": 128656,
+      "note": "CLOSED. test_all_tasks_race intermittent crash on _asyncio.Task under FT, but different assertion (PyObject_CallFinalizerFromDealloc called on non-zero-refcount object, refcount 1). Same area, different invariant."
+    },
+    {
+      "num": 116738,
+      "note": "OPEN. Audit all built-in modules for thread safety -- the _asyncio free-threading hardening remit this belongs to."
+    },
+    {
+      "num": 149816,
+      "note": "OPEN. 22 free-threading race conditions -- body does not list asyncio/Task, so this is NOT one of them."
+    }
+  ],
+  "assessment": "Real, NEW (no existing open/closed issue describes the validate_refcounts refcount-0-while-tracked abort in TaskObj_dealloc). Memory-safety / premature-free class. Fix: untrack before finalizer+unregister_task in TaskObj_dealloc. Same _asyncio FT-hardening remit as gh-116738; fresh consequence of the gh-142556 fix (#142565).",
+  "related": [],
+  "release_build_behaviour": {
+    "build": "python_build_matrix/builds/release-ft-nojit (3.16.0a0, --disable-gil, Py_DEBUG=False, no sanitizer)",
+    "hang": "5/5 runs wedge at N=4/ITERS=40 (only 160 transient Tasks); one run still wedged after 150s at 100% CPU (user~=real, i.e. spinning, not blocked)",
+    "segfault": "observed once at N=4/ITERS=150 (exit 139, core dumped)",
+    "smallest_hang": "N=2/ITERS=5 (10 transient Tasks) wedged 1/3 runs -- rules out mere slowness",
+    "control": "identical-shape control using a plain class whose __init__ raises (no unregister_task/_PyEval_StopTheWorld in dealloc): 5/5 complete cleanly in 0.11s. The wedge is attributable to the _asyncio.Task dealloc path, not the repro shape.",
+    "wedged_stack": "t1: _mi_page_free_collect (Objects/mimalloc/page.c:245) <- _mi_heap_area_init <- mi_heap_visit_areas_page <- mi_heap_visit_pages <- mi_heap_visit_blocks(visitor=update_refs) <- gc_visit_heaps_lock_held (Python/gc_free_threading.c:395) <- gc_visit_heaps (:429) <- deduce_unreachable_heap (:1447) <- gc_collect_internal (:2119) <- gc_collect_main (:2257) <- gc_collect_impl (Modules/gcmodule.c:93). t0/t2/t3: _PyMutex_Lock(_PyRuntime+169592) <- _PyParkingLot_Park <- _PySemaphore_Wait. main: threading.join.",
+    "evidence": "release_hang_backtrace.txt",
+    "note": "release+TSan and release+ASan runs also time out on this same wedge, so neither sanitizer gets far enough to emit a report -- the absence of an ASan UAF report is the wedge, not evidence of safety.",
+    "checked_on": "2026-07-16"
+  }
+}

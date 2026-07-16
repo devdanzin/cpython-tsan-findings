@@ -4,7 +4,12 @@
   "title": "_decimal: shared Context clear_flags() races repr()/.flags on the non-atomic mpd_context_t.status field",
   "description": "A shared decimal.Context embeds an mpd_context_t whose `status` (uint32_t) is read/written with plain accesses. ctx.clear_flags() writes CTX(self)->status = 0 (_decimal.c:1421) while a concurrent repr(ctx) reads ctx->status (_decimal.c:1570). Same non-atomic mpd_context_t::status field already filed as cpython#149142 (PR #150598) -> DUPLICATE, distinct call-site pair.",
   "signatures": [
-    "Modules/_decimal/_decimal.c:_decimal_Context_clear_flags_impl | Modules/_decimal/_decimal.c:context_repr"
+    "Modules/_decimal/_decimal.c:_decimal_Context_clear_flags_impl | Modules/_decimal/_decimal.c:context_repr",
+    "Modules/_decimal/_decimal.c:dec_addstatus | Modules/_decimal/_decimal.c:dec_addstatus",
+    "Modules/_decimal/_decimal.c:dec_addstatus | Modules/_decimal/_decimal.c:dec_as_long",
+    "Modules/_decimal/_decimal.c:_decimal_Decimal_to_integral_value_impl | Modules/_decimal/_decimal.c:dec_addstatus",
+    "Modules/_decimal/_decimal.c:_decimal_Context_clear_traps_impl | Modules/_decimal/_decimal.c:context_repr",
+    "Modules/_decimal/_decimal.c:_decimal_Context_clear_traps_impl | Modules/_decimal/_decimal.c:context_copy"
   ],
   "sites": [
     "Modules/_decimal/_decimal.c _decimal_Context_clear_flags_impl:1421:23 (write, size 4: CTX(self)->status = 0)",

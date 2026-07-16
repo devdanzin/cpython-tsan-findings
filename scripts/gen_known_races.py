@@ -15,6 +15,18 @@ REPORTS = ROOT / "reports"
 OUT = ROOT / "catalog" / "known_races.tsv"
 
 
+def _normalize(sig):
+    """Return the signature with its two `file:func` sites sorted, matching what
+    fusil tsan_dedup.parse_report emits (an *unordered* pair). A meta.json that stored
+    the pair in the other order would otherwise never match a live report -- see the
+    TSAN-0013/-0029 mis-ordering caught 2026-07-16. SEGV/other single-token signatures
+    (no ` | `, or not exactly two parts) pass through untouched."""
+    parts = sig.split(" | ")
+    if len(parts) == 2:
+        return " | ".join(sorted(parts))
+    return sig
+
+
 def main():
     rows = set()
     ids = set()
@@ -27,7 +39,7 @@ def main():
         for sig in d.get("signatures", []):
             sig = sig.strip()
             if sig:
-                rows.add((rid, sig))
+                rows.add((rid, _normalize(sig)))
     OUT.parent.mkdir(exist_ok=True)
     with OUT.open("w") as fh:
         fh.write("# race_id\tsignature\n")

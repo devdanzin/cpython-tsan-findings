@@ -1,0 +1,70 @@
+{
+  "id": "TSAN-0031",
+  "slug": "elementtree-treebuilder-shared-state",
+  "title": "_elementtree.TreeBuilder: concurrent feed of one shared builder races its unsynchronized parse state (self->data / self->last / self->this / self->last_for_tail / self->index / self->stack); treebuilder_handle_* have no lock / no critical section",
+  "description": "A TreeBuilder keeps all parse state in plain TreeBuilderObject struct fields. Every public feed method (start/data/end/comment/pi -> treebuilder_handle_*, plus the shared helper treebuilder_flush_data / treebuilder_extend_element_text_or_tail) mutates those fields in place -- Py_CLEAR/Py_SETREF/Py_NewRef on the pointer fields and index++/index-- on the stack cursor -- with no lock and no @critical_section (Modules/_elementtree.c defines zero Py_BEGIN_CRITICAL_SECTION, on the confirmed build and on current main). Two threads calling any feed methods on the SAME shared builder therefore data-race on the builder's internals. This is a cluster of ~8 treebuilder_* vs treebuilder_* signatures (~18 vehicles in fleet-03), all faces of the same unsynchronized shared-builder parse-state bug. Representative face: treebuilder_flush_data reads `if (!self->data)` (:2684) while treebuilder_extend_element_text_or_tail writes self->data NULL (:2636/:2644).",
+  "signatures": [
+    "Modules/_elementtree.c:treebuilder_extend_element_text_or_tail | Modules/_elementtree.c:treebuilder_flush_data",
+    "Modules/_elementtree.c:treebuilder_flush_data | Modules/_elementtree.c:treebuilder_handle_data",
+    "Modules/_elementtree.c:treebuilder_handle_comment | Modules/_elementtree.c:treebuilder_handle_end",
+    "Modules/_elementtree.c:treebuilder_handle_comment | Modules/_elementtree.c:treebuilder_handle_start",
+    "Modules/_elementtree.c:treebuilder_handle_data | Modules/_elementtree.c:treebuilder_handle_end",
+    "Modules/_elementtree.c:treebuilder_handle_data | Modules/_elementtree.c:treebuilder_handle_start",
+    "Modules/_elementtree.c:treebuilder_handle_end | Modules/_elementtree.c:treebuilder_handle_pi",
+    "Modules/_elementtree.c:treebuilder_handle_end | Modules/_elementtree.c:treebuilder_handle_start"
+  ],
+  "sites": [
+    "Modules/_elementtree.c treebuilder_flush_data:2684 (READ self->data: `if (!self->data)`; called at top of handle_start/_end/_comment/_pi)",
+    "Modules/_elementtree.c treebuilder_extend_element_text_or_tail:2636 (WRITE self->data = NULL: `*data = NULL` after JOIN_SET; data == &self->data) [this repro's write face]",
+    "Modules/_elementtree.c treebuilder_extend_element_text_or_tail:2644 (WRITE self->data = NULL: `Py_CLEAR(*data)`) [seeding fleet vehicle's write face]",
+    "Modules/_elementtree.c treebuilder_handle_data:2817 (READ self->last: `if (self->last == Py_None)`)",
+    "Modules/_elementtree.c treebuilder_handle_end:2869 (WRITE self->last: `self->last = Py_NewRef(this)`)",
+    "Modules/_elementtree.c treebuilder_handle_start:2772 (READ self->this: `this = self->this`)",
+    "Modules/_elementtree.c treebuilder_handle_end:2872 (WRITE self->this + READ self->stack/self->index: `self->this = Py_NewRef(PyList_GET_ITEM(self->stack, self->index))`)",
+    "Modules/_elementtree.c treebuilder_handle_start:2790/2798 (READ/WRITE self->index + self->stack: index bound check, PyList_SetItem/Append, self->index++)",
+    "Modules/_elementtree.c treebuilder_handle_end:2871 (WRITE self->index: `self->index--`)"
+  ],
+  "race_kind": "shared builtin object's internal parse state: multiple non-atomic reader/writer call sites (refcount RMW on PyObject* fields + non-atomic Py_ssize_t stack cursor) with no per-object critical section; cluster of treebuilder_* vs treebuilder_* faces",
+  "shared_state": "TreeBuilderObject parse-state fields on a single shared _elementtree.TreeBuilder: data (pending text/tail collector), last, this, last_for_tail (current/most-recent nodes), index (stack cursor) and stack (open-element list)",
+  "severity": "moderate (crash-capable in principle; no crash observed -- TSan halts on the plain-memory race first). Confirmed report is a pointer read/write on self->data, but the surrounding unsynchronized ops are refcount RMW (Py_CLEAR/Py_SETREF/Py_NewRef/Py_DECREF) on shared PyObject* fields (UAF/double-decref risk) and a non-atomic self->index++/-- that indexes self->stack (OOB risk). Conventionally single-threaded object (parser sink) lowers real-world priority; but declares Py_MOD_GIL_NOT_USED and shared builtin should not data-race (Yhg1s ruling).",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: exit 66 on 8/8 runs within ~1s; SUMMARY names different faces of the cluster across runs (most often flush_data/extend_element_text_or_tail on self->data; also handle_start/handle_end on self->this). No XMLParser/expat -- bare TreeBuilder isolates the builder-internal race.",
+  "suggested_fix": "Apply the module's own _lock_held split-function + Py_BEGIN_CRITICAL_SECTION(self) pattern to the WHOLE TreeBuilder feed path: wrap each public clinic method (_elementtree_TreeBuilder_start/_data/_end/_comment/_pi/_close) in a per-object critical section on self so flush_data + the field mutations run atomically per builder; make treebuilder_flush_data/treebuilder_extend_element_text_or_tail _lock_held helpers. Per-object critical section on self is the right mechanism (state is per-builder). ALL feed methods must take it -- the abandoned PR gh-145569 (REQ-7) locked only treebuilder_handle_end, which is insufficient (handle_start/_data/_comment/_pi still race on self->data/self->last/self->this).",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-16",
+  "found_in": "fusil-tsan_fleet_03",
+  "vehicles": [
+    "inst-01/python/xml_etree_ElementTree-warning_threadsanitizer_data_race-tsanNEW",
+    "inst-01/python/_elementtree-warning_threadsanitizer_data_race-tsanNEW",
+    "inst-02/python/xml_etree_ElementTree-warning_threadsanitizer_data_race-tsanNEW-2",
+    "inst-02/python/xml_etree_cElementTree-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer; _elementtree.cpython-316td-x86_64-linux-gnu.so BuildId ed013c27fd85edf0effac151c740aca64229efa2)",
+  "confirmed_unfixed_on": "current main: Modules/_elementtree.c last touched by 7de4fcd44585f572acbcee23f5c7018b2b3f0983 (gh-149571) contains zero Py_BEGIN_CRITICAL_SECTION -- feed path still fully unlocked, race live",
+  "notes": "NOT covered by any merged fix. Closest prior art: issue gh-145568 / PR gh-145569 ('Fix thread safety in _elementtree.c', audited for gh-116738) -- CLOSED, PR never merged; its REQ-7 identified ONE facet ('treebuilder_handle_end reads self->stack and decrements self->index without a lock') and proposed a _lock_held split, but was abandoned and would not fix the self->data/self->last/self->this faces. Umbrella gh-149816 ('22 free-threading race conditions') lists two _elementtree items -- (69) Element.__len__ (PR gh-149918, open) and (87) Element.text -- both Element-object races, NOT the TreeBuilder feed-method race; this cluster is not in its enumerated list. gh-116738 (audit built-in modules for thread safety): squarely in remit. Distinct from TSAN-0009 (pyexpat/expat parser -- this needs no XMLParser/expat; one vehicle's stdout printed an expat_malloc race first under halt_on_error, a different bug firing first in a mixed vehicle) and from TSAN-0013/TSAN-0022 (_setevents aliasing a shared LIST / parser events fields -- this is the builder's own data/last/this/index/stack, not a list).",
+  "related_issues": [
+    {
+      "num": 145568,
+      "note": "CLOSED issue 'Fix thread safety in _elementtree.c' (audited for gh-116738); PR gh-145569 never merged. REQ-7 identified the treebuilder_handle_end stack/index face -- one facet of this cluster -- but was abandoned and only locked handle_end (insufficient for the data/last/this faces)."
+    },
+    {
+      "num": 145569,
+      "note": "CLOSED (unmerged) PR for gh-145568. Applied _lock_held + Py_BEGIN_CRITICAL_SECTION to Element paths and REQ-7 to treebuilder_handle_end only. Its approach is the correct fix template but must be extended to ALL treebuilder feed methods."
+    },
+    {
+      "num": 116738,
+      "note": "Audit all built-in modules for thread safety -- the FT-hardening remit this falls under; _elementtree declares Py_MOD_GIL_NOT_USED but leaves the TreeBuilder feed path unlocked."
+    },
+    {
+      "num": 149816,
+      "note": "'22 free-threading race conditions' umbrella. Lists (69) Element.__len__ (PR gh-149918 open) and (87) Element.text -- both Element-object races, distinct from the TreeBuilder feed-method cluster. Cross-checked: this cluster is not enumerated there."
+    }
+  ],
+  "related": [
+    "TSAN-0009 (pyexpat don't-share-the-parser -- DISTINCT: this is TreeBuilder-internal, no expat)",
+    "TSAN-0013 (shared-list nonatomic read vs resize -- DISTINCT: this is builder struct fields, not a list)",
+    "TSAN-0022 (_elementtree _setevents shared-list / parser events fields -- DISTINCT: not the events list/fields)"
+  ]
+}

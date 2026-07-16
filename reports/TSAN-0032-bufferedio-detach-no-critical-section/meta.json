@@ -1,0 +1,66 @@
+{
+  "id": "TSAN-0032",
+  "slug": "bufferedio-detach-no-critical-section",
+  "title": "_io buffered: buffered_iternext reads self->ok via CHECK_INITIALIZED outside its critical section, racing BufferedReader.detach()'s self->ok = 0 write (residual of the merged-but-incomplete PR #150295)",
+  "description": "io.BufferedReader.detach() (_io__Buffered_detach_impl) IS @critical_section, so its self->raw=NULL; self->detached=1; self->ok=0 writes (bufferedio.c:626-628) run under Py_BEGIN_CRITICAL_SECTION(self). But the tp_iternext slot buffered_iternext -- reached by next(reader) / for line in reader / list(reader) -- does its CHECK_INITIALIZED(self) (which reads self->ok, bufferedio.c:341) at :1504, BEFORE it opens its own critical section around _buffered_readline at :1512. That leading flag read is unprotected and races detach()'s self->ok=0 store. It is a residual of PR #150295 (gh-149816 item #84, merged e8545ed3), which added the critical section around _buffered_readline but left CHECK_INITIALIZED outside it; the fix commit is in the build tree yet the race still reproduces.",
+  "signatures": [
+    "Modules/_io/bufferedio.c:_io__Buffered_detach_impl | Modules/_io/bufferedio.c:buffered_iternext"
+  ],
+  "sites": [
+    "Modules/_io/bufferedio.c _io__Buffered_detach_impl:628 (WRITE, size 4: self->ok = 0; under Py_BEGIN_CRITICAL_SECTION via the @critical_section clinic wrapper _io__Buffered_detach, clinic/bufferedio.c.h:410-412)",
+    "Modules/_io/bufferedio.c buffered_iternext:1504 (READ, size 4: CHECK_INITIALIZED(self) reads self->ok, macro at :341; this is BEFORE Py_BEGIN_CRITICAL_SECTION(self) at :1512)",
+    "Modules/_io/bufferedio.c CHECK_INITIALIZED macro:341 (if (self->ok <= 0) -- the racing read expression)",
+    "Modules/_io/bufferedio.c buffered struct:226-228 (PyObject *raw; int ok; int detached;)",
+    "Modules/_io/bufferedio.c _buffered_readline:1213 CHECK_CLOSED -> IS_CLOSED:364-368 (both branches deref self->raw -> latent NULL-deref after a stale-ok TOCTOU)"
+  ],
+  "race_kind": "shared BufferedReader self->ok flag: non-atomic reader (buffered_iternext CHECK_INITIALIZED, outside CS) vs writer (detach, self->ok=0 inside per-object critical section); incomplete-fix residual",
+  "shared_state": "buffered.ok (int, the 'initialized?' flag) of a shared io.BufferedReader/BufferedRandom; written to 0 by detach() under the per-object critical section, read by buffered_iternext's leading CHECK_INITIALIZED without any critical section",
+  "severity": "low (reported race is a benign single-int flag read of self->ok; value 0/1, cannot tear). NOT purely benign though: the missing-CS window is a TOCTOU that lets a CS-protected _buffered_readline run against a just-detached object (self->raw == NULL), whose CHECK_CLOSED/fill dereference self->raw -> latent NULL-deref (same shape as the confirmed crash #153296 for stringio_iternext). Repro halts on the flag race first, so the crash was not observed.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: 8/8 runs exit 66 in ~0.6s each; SUMMARY names either side of the same read/write pair (bufferedio.c:628 detach write or bufferedio.c:1504 iternext read)",
+  "suggested_fix": "Bring buffered_iternext's CHECK_INITIALIZED (and the state/tp reads) under the per-object critical section, or widen the existing CS (:1512-1514) to cover the fast-path check-and-read atomically w.r.t. detach/close. CHECK_INITIALIZED's `return NULL` can't sit inside Py_BEGIN/END_CRITICAL_SECTION, so use a line=NULL/goto exit or restructure. Non-free-threaded build unaffected (CS macros are no-ops there). This is a follow-up to the incomplete PR #150295.",
+  "status": "reported",
+  "upstream_issue": 149816,
+  "found_date": "2026-07-16",
+  "found_in": "fusil-tsan_fleet_03",
+  "vehicles": [
+    "inst-02/python/tempfile-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40, Jul 4 2026)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (contains the PR #150295 fix commit e8545ed3 as an ancestor, yet the CHECK_INITIALIZED flag-read race still reproduces -- the fix is incomplete)",
+  "notes": "IMPORTANT: the task premise ('detach is NOT @critical_section') is FALSE on current main -- detach IS @critical_section (bufferedio.c:611-614) and its self->ok=0 write at :628 is protected. The actual gap is on the READER side: buffered_iternext's leading CHECK_INITIALIZED(self) at :1504 reads self->ok outside any critical section. This is a residual of the merged fix PR #150295 (gh-149816 item #84, 'Iterator path bypasses buffered object lock in Modules/_io/bufferedio.c', marked [x] done in the umbrella), which added Py_BEGIN_CRITICAL_SECTION only around _buffered_readline (:1512-1514) and left CHECK_INITIALIZED outside it. Sibling @critical_section clinic methods (seekable/readable/writable/flush/closed/detach) run their CHECK_INITIALIZED inside the wrapper CS, so they are safe. Recommend filing as an incomplete-fix follow-up to PR #150295 / reopening gh-149816 item #84.",
+  "related_issues": [
+    {
+      "num": 149816,
+      "note": "'22 free-threading race conditions' umbrella. Item #84 = 'Iterator path bypasses buffered object lock in Modules/_io/bufferedio.c', marked [x] done via PR #150295. THIS finding is the residual: PR #150295's fix is incomplete (CHECK_INITIALIZED left outside the CS)."
+    },
+    {
+      "num": 150295,
+      "note": "MERGED (commit e8545ed3, 2026-05-23) 'add missing critical section on self in buffered_iternext'. Added Py_BEGIN/END_CRITICAL_SECTION only around _buffered_readline; did NOT cover the leading CHECK_INITIALIZED at :1504. This finding is that residual."
+    },
+    {
+      "num": 153296,
+      "note": "SAME CLASS, DISTINCT type/file: stringio_iternext (io.StringIO / Modules/_io/stringio.c), a non-clinic tp_iternext slot doing check/read outside the per-object CS that write/seek hold. Filed as type-crash (confirmed UAF/segfault). Our bufferedio case has the analogous TOCTOU->NULL-deref latent crash."
+    },
+    {
+      "num": 151707,
+      "note": "RELATED, DISTINCT: 'Race condition in FileIO under free-threading' is Modules/_io/fileio.c on the raw stream's fd; this is bufferedio.c on the buffered wrapper's self->ok flag. Different file/type/field."
+    },
+    {
+      "num": 116738,
+      "note": "'Audit all built-in modules for thread safety' -- the FT-hardening remit this falls under (extension-modules + topic-free-threading)."
+    },
+    {
+      "num": 144380,
+      "note": "CLOSED, performance: fixed the fast-path type check in buffered_iternext (unrelated correctness bug). Not this race, but the race lives on that same fast path; CHECK_INITIALIZED:1504 runs on both fast and slow paths so the race is path-independent."
+    }
+  ],
+  "assessment": "Real, in-scope FT race, but ALREADY-FILED and PARTIALLY-FIXED: it is the residual of gh-149816 item #84 / merged PR #150295. detach() is correctly @critical_section; the reader buffered_iternext's leading CHECK_INITIALIZED was left outside the critical section that PR #150295 added. Status 'reported' (upstream_issue 149816). Recommend a small follow-up PR bringing CHECK_INITIALIZED under the CS and noting the incomplete fix.",
+  "reader_faces": [
+    "buffered_iternext (bufferedio.c:1504, via next()/for/list() -> _PyForIter_VirtualIteratorNext or list_extend_iter_lock_held)"
+  ],
+  "related": [
+    "TSAN-0007 (StringIO iternext vs mutating method bypassing per-object CS; same class, different type -- cpython#153296)"
+  ]
+}

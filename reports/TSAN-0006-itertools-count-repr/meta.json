@@ -4,7 +4,6 @@
   "title": "itertools: concurrent repr() of a shared count() races count_repr's plain read of lz->cnt against count_next's atomic advance",
   "description": "In the free-threaded build count_next advances a fast-mode count()'s counter lz->cnt with an atomic compare-exchange (itertoolsmodule.c:3599), but count_repr reads the same field with a plain non-atomic load (itertoolsmodule.c:3612). Sharing a count() across threads while some repr() it and others next() it is a data race (atomic write vs plain read) on an operation callers treat as read-only.",
   "signatures": [
-    "Modules/itertoolsmodule.c:count_repr | Modules/itertoolsmodule.c:count_repr",
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_compare_exchange_ssize | Modules/itertoolsmodule.c:count_repr"
   ],
   "sites": [

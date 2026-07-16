@@ -4,8 +4,7 @@
   "title": "_zstd: ZstdCompressor.last_mode written plain under the lock but read lock-free via its Py_T_INT member descriptor",
   "description": "ZstdCompressor.flush()/.compress() store the int last_mode field with a plain C write under self->lock (compressor.c:679), but last_mode is exposed as a read-only Py_T_INT member, so getattr(c,'last_mode') reads it with a relaxed-atomic load in PyMember_GetOne (structmember.c:64) without the lock. On a shared compressor the unlocked plain write races the unlocked atomic read.",
   "signatures": [
-    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_int_relaxed | Modules/_zstd/compressor.c:_zstd_ZstdCompressor_flush_impl",
-    "Modules/_zstd/compressor.c:_zstd_ZstdCompressor_flush_impl | Modules/_zstd/compressor.c:_zstd_ZstdCompressor_flush_impl"
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_int_relaxed | Modules/_zstd/compressor.c:_zstd_ZstdCompressor_flush_impl"
   ],
   "sites": [
     "Include/cpython/pyatomic_gcc.h _Py_atomic_load_int_relaxed:307 (relaxed-atomic load, read side)",

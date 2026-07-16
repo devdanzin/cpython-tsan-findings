@@ -6,7 +6,9 @@
   "signatures": [
     "Modules/_io/fileio.c:internal_close | Python/fileutils.c:_Py_fstat_noraise",
     "Modules/_io/fileio.c:_io_FileIO___init___impl | Python/fileutils.c:_Py_fstat_noraise",
-    "Modules/selectmodule.c:pyepoll_internal_close | Modules/selectmodule.c:select_epoll_fileno_impl"
+    "Modules/selectmodule.c:pyepoll_internal_close | Modules/selectmodule.c:select_epoll_fileno_impl",
+    "Modules/_io/fileio.c:internal_close | Python/fileutils.c:_Py_read",
+    "Modules/_io/fileio.c:internal_close | Modules/posixmodule.c:posix_do_stat"
   ],
   "reproduced_signatures": [
     "Modules/selectmodule.c:pyepoll_internal_close:1335 | Modules/selectmodule.c:select_epoll_fileno_impl:1477 (epoll face (c), EXACT seeded match)",

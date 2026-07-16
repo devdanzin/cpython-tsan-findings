@@ -6,7 +6,9 @@
   "signatures": [
     "Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:ptrace_leave_call",
     "Modules/_lsprof.c:Stop | Modules/_lsprof.c:flush_unmatched",
-    "Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:initContext"
+    "Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:initContext",
+    "Modules/_lsprof.c:getEntry | Modules/rotatingtree.c:RotatingTree_Enum",
+    "Modules/_lsprof.c:ptrace_leave_call | Objects/obmalloc.c:_PyMem_DebugRawFree"
   ],
   "sites": [
     "Modules/_lsprof.c flush_unmatched:866 (read: while (pObj->currentProfilerContext) \u2014 in profiler_dealloc:984, NOT critical-section-guarded)",

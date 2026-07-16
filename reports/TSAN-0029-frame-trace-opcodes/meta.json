@@ -4,7 +4,9 @@
   "title": "frameobject/sys: a running frame's f_trace is written by trace_trampoline without the frame's critical section, racing the @critical_section f_trace_opcodes/f_trace setters",
   "description": "trace_trampoline does Py_XSETREF(frame->f_trace, result) on every traced event with no lock, while the Python-level frame.f_trace / frame.f_trace_opcodes accessors are all @critical_section. A second thread setting f_trace_opcodes on a running thread's frame (reachable via sys._current_frames()) reads self->f_trace under the frame lock while the owning thread races it with the unlocked trampoline write; the setter's critical section protects nothing.",
   "signatures": [
-    "Python/sysmodule.c:trace_trampoline | Objects/frameobject.c:frame_trace_opcodes_set_impl"
+    "Objects/frameobject.c:frame_trace_opcodes_set_impl | Python/sysmodule.c:trace_trampoline",
+    "Objects/frameobject.c:frame_trace_opcodes_set_impl | Python/legacy_tracing.c:sys_trace_instruction_func",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_char_relaxed | Python/instrumentation.c:_Py_call_instrumentation_line"
   ],
   "sites": [
     "Python/sysmodule.c trace_trampoline:1125 (WRITE Py_XSETREF(frame->f_trace, result); no critical section)",

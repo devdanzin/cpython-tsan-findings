@@ -4,8 +4,8 @@
   "title": "marshal: concurrent marshal.dumps() of a shared list races on the list's ob_item[] array (w_complex_object)",
   "description": "w_complex_object serializes a list with PyList_GET_ITEM(v, i) (a plain, non-atomic read of ob_item[]) and takes no critical section on the list, unlike the set branch of the same function. marshal.dumps(shared_list) on one thread races with list.append() on another thread, whose atomic ob_item[] store (element slot on the fast path, or ob_item base pointer on the resize path) collides with the marshaller's plain read. marshal.dumps() looks read-only, so a shared list is not safe to marshal concurrently with mutation.",
   "signatures": [
-    "Python/marshal.c:w_complex_object | Python/marshal.c:w_complex_object",
-    "Objects/listobject.c:list_resize | Python/marshal.c:w_complex_object"
+    "Objects/listobject.c:list_resize | Python/marshal.c:w_complex_object",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Python/marshal.c:w_complex_object"
   ],
   "sites": [
     "Python/marshal.c w_complex_object:605 (read PyList_GET_ITEM(v, i) -> ob_item[i], non-atomic, no critical section)",

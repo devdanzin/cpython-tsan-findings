@@ -5,7 +5,7 @@
   "description": "_setevents calls PySequence_Fast(events_to_report), which returns a real list argument unchanged (no copy), then reads ob_item[i] via PySequence_Fast_GET_ITEM with no per-object lock. A concurrent list.append on the same shared list runs list_resize (memcpy + atomic republish of ob_item), racing the read. The racing state is the user's plain Python list, not the parser's internals -- the shared-list-mutation class surfaced through _setevents.",
   "signatures": [
     "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Objects/listobject.c:list_resize",
-    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl",
     "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl (self/self face: shared parser)"
   ],
   "sites": [

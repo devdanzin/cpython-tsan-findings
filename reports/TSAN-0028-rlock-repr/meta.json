@@ -4,7 +4,9 @@
   "title": "_threadmodule: repr() of a shared RLock reads the owner thread-id non-atomically while another thread acquires/releases it (rlock_repr)",
   "description": "rlock_repr reads self->lock.thread (the recursive mutex owner) with a plain load, but acquire()/release() store it via _Py_atomic_store_ullong_relaxed (lock.c:439/466). repr() of a shared RLock races with acquire/release on a public, explicitly-shareable API.",
   "signatures": [
-    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ullong_relaxed | Modules/_threadmodule.c:rlock_repr"
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ullong_relaxed | Modules/_threadmodule.c:rlock_repr",
+    "Modules/_threadmodule.c:rlock_repr | Python/lock.c:_PyRecursiveMutex_LockTimed",
+    "Modules/_threadmodule.c:_thread_RLock__release_save_impl | Modules/_threadmodule.c:rlock_repr"
   ],
   "sites": [
     "Modules/_threadmodule.c rlock_repr:1291 (PLAIN read of self->lock.thread -- the racing read)",

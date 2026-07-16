@@ -4,7 +4,9 @@
   "title": "faulthandler: is_enabled() reads the global fatal_error.enabled flag that enable()/disable() write without synchronization",
   "signatures": [
     "Modules/faulthandler.c:faulthandler_enable | Modules/faulthandler.c:faulthandler_is_enabled_impl",
-    "Modules/faulthandler.c:faulthandler_disable | Modules/faulthandler.c:faulthandler_is_enabled_impl"
+    "Modules/faulthandler.c:faulthandler_disable | Modules/faulthandler.c:faulthandler_is_enabled_impl",
+    "Modules/faulthandler.c:faulthandler_disable | Modules/faulthandler.c:faulthandler_py_enable_impl",
+    "Modules/faulthandler.c:faulthandler_disable_py_impl | Modules/faulthandler.c:faulthandler_enable"
   ],
   "sites": [
     "Modules/faulthandler.c faulthandler_is_enabled_impl:686",
