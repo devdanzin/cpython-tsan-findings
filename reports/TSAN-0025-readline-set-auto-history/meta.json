@@ -1,0 +1,39 @@
+{
+  "id": "TSAN-0025",
+  "slug": "readline-set-auto-history",
+  "title": "readline: set_auto_history() writes the module-global should_auto_add_history flag without synchronization",
+  "description": "readline.c gates auto-append-to-history on a file-scope C global `static int should_auto_add_history` (readline.c:825). readline.set_auto_history(bool) stores it with a plain unsynchronized write (readline.c:843) and is NOT @critical_section; it is read unsynchronized in call_readline() (readline.c:1584). Two threads calling set_auto_history() concurrently are a write/write data race on the global; a set_auto_history() writer vs an input()/readline() reader is the write/read variant. CPython-owned global (not libreadline, not the readlinestate struct); fix is FT_ATOMIC relaxed, mirroring the sibling _history_length global.",
+  "signatures": [
+    "Modules/readline.c:readline_set_auto_history_impl | Modules/readline.c:readline_set_auto_history_impl"
+  ],
+  "sites": [
+    "Modules/readline.c:825 (def: static int should_auto_add_history = 1 -- file-scope C global, NOT in readlinestate)",
+    "Modules/readline.c readline_set_auto_history_impl:843 (WRITE, 4 bytes: should_auto_add_history = _should_auto_add_history; clinic function is NOT @critical_section)",
+    "Modules/readline.c call_readline:1584 (READ: if (should_auto_add_history && n > 0) -- unsynchronized read on the interactive input path)"
+  ],
+  "race_kind": "unsynchronized file-scope C global int flag (plain write in a non-@critical_section setter; plain read on the input path); write/write between two setters, write/read between setter and call_readline()",
+  "shared_state": "should_auto_add_history (static int in Modules/readline.c, process-global, CPython-owned; controls whether typed lines are auto-added to readline history)",
+  "severity": "low (value-benign 4-byte boolean flag; no refcount/pointer/allocation, no crash or memory-safety hazard; genuine TSan data race on CPython-owned shared state reachable from pure Python)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66 on every run; 2/2 consecutive runs flagged the same write/write pair on global 'should_auto_add_history' at readline.c:843)",
+  "suggested_fix": "make should_auto_add_history use FT_ATOMIC relaxed access matching the sibling _history_length global: FT_ATOMIC_STORE_INT_RELAXED at the :843 write and FT_ATOMIC_LOAD_INT_RELAXED at the :1584 read. @critical_section is the wrong tool (process-global, not per-module-object state; would not order the write against the lockless call_readline() read).",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/readline-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, heads/main:bcf98ddbc40, Clang 21.1.8, --disable-gil --with-thread-sanitizer)",
+  "notes": "CPython's OWN module global, not GNU libreadline internal state (no _rl_*/rl_*) and NOT part of the per-module readlinestate heap block -- fully fixable inside Modules/readline.c, distinct from the thread-unsafe-C-library class (gh-127081, locale/setlocale, libreadline reentrancy). Incomplete free-threading migration: the sibling flag _history_length (readline.c:320) was converted to FT_ATOMIC_{LOAD,STORE}_INT_RELAXED (readline.c:361/420/450/467) and the completer/hook pointer setters were made @critical_section, but should_auto_add_history was left as a bare global and set_auto_history was left non-@critical_section. Confirmed still plain on upstream main.",
+  "cross_check_vs_TSAN_0016": "DISTINCT variable and DISTINCT fix from TSAN-0016 / gh-153291 (PR gh-153362, 'Fix data race in readline.get_completer() and get_pre_input_hook()'). gh-153291 = readlinestate POINTER fields (state->completer/pre_input_hook, PyObject* in per-module heap state) whose getters lacked @critical_section, with a latent borrowed-ref/UAF angle; its patch does NOT touch should_auto_add_history. This finding = a plain file-scope static int flag, no pointer/refcount/UAF, fix is FT_ATOMIC not @critical_section. SAME broad class (unsynchronized CPython-owned readline module state, incomplete FT migration, same file) but a SEPARATE, still-open gap not covered by gh-153291.",
+  "related_issues": [
+    {
+      "num": 153291,
+      "note": "readline get_completer/get_pre_input_hook FT race (PR #153362) -- DISTINCT field (should_auto_add_history static int, not readlinestate pointer); same incomplete readline FT migration. Fold into that cleanup or umbrella."
+    }
+  ],
+  "assessment": "Real, low-severity, NEW field (module-global static int should_auto_add_history, plain write). Distinct from #153291 (pointer getters) but same readline FT-migration class. Fix: FT_ATOMIC. Fold into the readline cleanup rather than file standalone.",
+  "confirmed_unfixed_on": "local checkout /home/danzin/projects/cpython @ 4f3be1b5777 (newer than the build) -- should_auto_add_history still a plain `static int` (readline.c:825), written unsynchronized at :843 in a non-@critical_section set_auto_history, read unsynchronized at :1591"
+}

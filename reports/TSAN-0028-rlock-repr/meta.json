@@ -1,0 +1,42 @@
+{
+  "id": "TSAN-0028",
+  "slug": "rlock-repr",
+  "title": "_threadmodule: repr() of a shared RLock reads the owner thread-id non-atomically while another thread acquires/releases it (rlock_repr)",
+  "description": "rlock_repr reads self->lock.thread (the recursive mutex owner) with a plain load, but acquire()/release() store it via _Py_atomic_store_ullong_relaxed (lock.c:439/466). repr() of a shared RLock races with acquire/release on a public, explicitly-shareable API.",
+  "signatures": [
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ullong_relaxed | Modules/_threadmodule.c:rlock_repr"
+  ],
+  "sites": [
+    "Modules/_threadmodule.c rlock_repr:1291 (PLAIN read of self->lock.thread -- the racing read)",
+    "Modules/_threadmodule.c rlock_repr:1295 (PLAIN read of self->lock.level -- secondary racy field)",
+    "Python/lock.c _PyRecursiveMutex_LockTimed:439 (atomic store m->thread = tid on acquire)",
+    "Python/lock.c _PyRecursiveMutex_TryUnlock:466 (atomic store m->thread = 0 on release)",
+    "Include/cpython/pyatomic_gcc.h _Py_atomic_store_ullong_relaxed:518 (the atomic store primitive)",
+    "Modules/_threadmodule.c _thread_RLock_acquire_impl:1102 (acquire() entry that calls LockTimed)",
+    "Include/internal/pycore_lock.h:159 (_PyRecursiveMutex { PyMutex mutex; unsigned long long thread; size_t level; })"
+  ],
+  "race_kind": "non-atomic read of an atomically-written field (owner thread-id) in a read-only-looking accessor (tp_repr)",
+  "shared_state": "_PyRecursiveMutex.thread (RLock owner thread-id); secondarily _PyRecursiveMutex.level (recursion count)",
+  "severity": "low (value-benign, crash-free; single aligned 8-byte word, no torn read; repr may print a stale owner/count; strictly UB: plain read vs atomic write)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66, ~0.6s, 3/3 runs)",
+  "suggested_fix": "make rlock_repr's reads atomic to match the writers: owner = _Py_atomic_load_ullong_relaxed(&self->lock.thread) and _Py_atomic_load_size_relaxed(&self->lock.level); relaxed ordering suffices (informational, single word)",
+  "status": "reported",
+  "upstream_issue": 153292,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/multiprocessing_dummy-warning_threadsanitizer_data_race-tsanFRAME"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "framework_noise_assessment": "REAL user-facing bug, NOT framework noise. The fleet deduper labeled the vehicle 'tsanFRAME' because the frames are in _threadmodule.c, but rlock_repr is the tp_repr slot of the public _thread.RLock type (== threading.RLock()). repr() is ordinary read-only user code (logging/debugging/%r), RLock is designed for cross-thread sharing, and the race is on the RLock's own owner field -- exactly what a real program with a shared lock + a logging thread hits. The mutating side already uses relaxed atomics; only the repr() reader was left non-atomic.",
+  "notes": "Structurally mirrors TSAN-0005 (dec_hash): a read-only-looking C accessor reads a field written atomically elsewhere. self->lock.level (:1295) is a secondary racy field (mutated by the owner under the mutex, read by repr without it) and should be fixed in the same change. _thread_RLock__recursion_count_impl (:1250) reads level only under _PyRecursiveMutex_IsLockedByCurrentThread (owner-only), so it is NOT part of this race. Audit _threadmodule.c for other plain reads of _PyRecursiveMutex/PyMutex internals in non-locking accessors.",
+  "related_issues": [
+    {
+      "num": 153292,
+      "note": "Data race in repr() of _thread.RLock -- exactly this (PR #153299, both CLOSED/fixed). Our build predates the fix."
+    }
+  ],
+  "assessment": "Real user-facing race (repr reads self->lock.thread plainly vs atomic writer). ALREADY REPORTED+FIXED #153292/PR#153299. NOTE: fusil deduper mislabeled the vehicle tsanFRAME (FRAMEWORK_FILES regex matches _threadmodule.c) though rlock_repr is public tp_repr -- a deduper over-suppression risk to fix in fusil."
+}

@@ -71,6 +71,23 @@ signature groups, 7 were deep-dived (all reproduced exit 66); the rest are dispo
 | TSAN-0017 | `_zstd` `flush\|flush` | dup of **TSAN-0002** (same `last_mode`; folded) |
 | TSAN-0020 | `tp_new_wrapper\|tp_new_wrapper` | **out of scope** — OpenSSL-internal libcrypto race (each thread builds its own `SSLContext`); like TSAN-0003 |
 
+## Fleet 02 candidate round (TSAN-0022…0030)
+
+Second deep-dive pass on the remaining new singles (all reproduced exit 66). Most were already
+filed — the FT-hardening effort is fast. New/umbrella-worthy in **bold**.
+
+| id | what | disposition |
+|----|------|-------------|
+| **TSAN-0026** | dict `dictiter_iternext_threadsafe:6043` plain-reads `ma_values` that `dictresize` publishes atomically (line `:6044` already reads it atomically) | **NEW, clean** — one-line incomplete-atomic-conversion; Yhg1s shared-container class |
+| **TSAN-0030** | `sys.monitoring.use_tool_id` TOCTOU on interp-global `monitoring_tool_names[]` (leak + dup ownership; `free_tool_id` UAF) | **NEW, medium** — class of TSAN-0011 |
+| **TSAN-0024** (epoll) | `select.epoll.close` is `@critical_section` but `fileno`/`register`/`poll` aren't (`epfd` plain int) | **NEW** — sibling of kqueue #151364; FileIO faces = #151707 |
+| **TSAN-0029** | `trace_trampoline` writes `frame->f_trace` unlocked vs `@critical_section` accessors | **NEW, low-priority** (needs cross-thread frame mutation) |
+| **TSAN-0025** | readline `set_auto_history` writes `should_auto_add_history` (static int) unlocked | NEW field, fold into the readline cleanup (#153291) |
+| TSAN-0023 | weakref `subtype_getweakref` unlocked list-head read (UAF potential) | already reported **#149816** / PR #150247 |
+| TSAN-0027 | `tp_subclasses` add-vs-clear asymmetric lock (UAF window) | already reported **#151377** |
+| TSAN-0028 | RLock `repr` reads `lock.thread` plainly vs atomic writer | already reported+**fixed #153292** / PR #153299 |
+| TSAN-0022 | elementtree `_setevents` | **folded** → TSAN-0013 (list faces) + TSAN-0009 (parser face) |
+
 ## Cross-check
 
 None of these overlap **#149816** ("22 free-threading race conditions") — that umbrella covers

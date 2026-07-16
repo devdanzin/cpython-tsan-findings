@@ -1,0 +1,45 @@
+{
+  "id": "TSAN-0023",
+  "slug": "type-subtype-getweakref",
+  "title": "typeobject: obj.__weakref__ (subtype_getweakref) reads the weakref list head without a lock; races with weakref create/destroy",
+  "description": "subtype_getweakref (the __weakref__ getset) reads the object's weakref list head (*weaklistptr at obj+tp_weaklistoffset) with a plain unlocked non-atomic load and Py_NewRefs the raw head pointer. insert_head (create) and clear_weakref_lock_held/FT_ATOMIC_STORE_PTR (destroy) mutate that same slot under LOCK_WEAKREFS. Reading obj.__weakref__ concurrently with weakref.ref(obj)/teardown on a shared object is a data race on the list head.",
+  "signatures": [
+    "Objects/typeobject.c:subtype_getweakref | Objects/typeobject.c:subtype_getweakref",
+    "Objects/typeobject.c:subtype_getweakref | Objects/weakrefobject.c:insert_head",
+    "Objects/typeobject.c:subtype_getweakref | Objects/weakrefobject.c:clear_weakref_lock_held"
+  ],
+  "sites": [
+    "Objects/typeobject.c subtype_getweakref:4079 (READ: `if (*weaklistptr == NULL)` -- plain, unlocked, non-atomic load of the weakref list head)",
+    "Objects/typeobject.c subtype_getweakref:4082-4083 (READ+INCREF: `result = *weaklistptr; return Py_NewRef(result)` -- hands the raw head pointer to Py_NewRef with no lock / no _Py_TryIncref)",
+    "Objects/weakrefobject.c insert_head:323 (WRITE: `*list = newref` under LOCK_WEAKREFS -- weakref creation face)",
+    "Objects/weakrefobject.c clear_weakref_lock_held:87 (WRITE: `FT_ATOMIC_STORE_PTR(*list, self->wr_next)` under LOCK_WEAKREFS -- weakref teardown face; the write side in the original fleet vehicle)"
+  ],
+  "race_kind": "unsynchronized read of shared internal state (missed FT-hardening: locked/atomic writers vs plain unlocked reader)",
+  "shared_state": "per-object weakref list head pointer at obj + tp_weaklistoffset (the __weakref__ slot)",
+  "severity": "low-medium (confirmed TSan data race on read-only-looking obj.__weakref__; plausible use-after-free because the unsynchronized head pointer is passed to Py_NewRef without lock/_Py_TryIncref, colliding with concurrent weakref teardown; no crash observed in the TSan build)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66 every run; SUMMARY always subtype_getweakref:4079)",
+  "suggested_fix": "read the head under LOCK_WEAKREFS(obj) and incref with _Py_TryIncref (mirroring _PyWeakref_GetWeakrefCount / try_reuse_basic_ref), returning None if the head is mid-teardown; a bare FT_ATOMIC_LOAD_PTR silences the TSan race but does not close the incref-of-a-dying-weakref UAF window",
+  "status": "reported",
+  "upstream_issue": 149816,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/multiprocessing_managers-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, Clang 21.1.8)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",
+  "notes": "Straggler from the weakref free-threading hardening: writers (insert_head, clear_weakref_lock_held) and the count/reuse readers (_PyWeakref_GetWeakrefCount:48, try_reuse_basic_ref:349) synchronize via LOCK_WEAKREFS + FT_ATOMIC_STORE_PTR / _Py_TryIncref, but the __weakref__ getset reader subtype_getweakref was left with a plain load. Reproduced stdlib-only with weakref.ref(obj, cb) (callback => non-reusable ref => real insert_head/clear churn) + obj.__weakref__. Audit other direct tp_weaklistoffset dereferences outside LOCK_WEAKREFS.",
+  "related_issues": [
+    {
+      "num": 149816,
+      "note": "22 FT races umbrella -- subtype_getweakref is item; PR #150247 'Fix race in subtype_getweakref'"
+    },
+    {
+      "num": 150247,
+      "note": "the fix PR"
+    }
+  ],
+  "assessment": "Real (potential UAF: Py_NewRef on raced head, no _Py_TryIncref). ALREADY REPORTED #149816/PR#150247. Not for separate filing."
+}

@@ -1,0 +1,38 @@
+{
+  "id": "TSAN-0026",
+  "slug": "dict-iternext-threadsafe",
+  "title": "dict: the lock-free FT dict iterator reads ma_values non-atomically vs set_values' atomic publish (dictiter_iternext_threadsafe:6043)",
+  "description": "dictiter_iternext_threadsafe (the free-threaded lock-free dict-iterator next) tests _PyDict_HasSplitTable(d) at dictobject.c:6043, a macro that plainly reads d->ma_values. A concurrent setattr() that overflows an instance's full shared keys converts its __dict__ split->combined in dictresize, publishing the new ma_values (NULL) via set_values -> _Py_atomic_store_ptr_release. Plain read vs atomic store on the same word is a data race -- and the very next line (6044) already reads ma_values atomically with _Py_atomic_load_ptr_consume, so this is an incomplete atomic conversion, not the general 'don't share a dict' class.",
+  "signatures": [
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:dictiter_iternext_threadsafe"
+  ],
+  "sites": [
+    "Objects/dictobject.c dictiter_iternext_threadsafe:6043 (PLAIN read of ma_values via _PyDict_HasSplitTable(d) == ((d)->ma_values != NULL))",
+    "Include/internal/pycore_dict.h:56 (#define _PyDict_HasSplitTable(d) ((d)->ma_values != NULL) -- the non-atomic macro)",
+    "Objects/dictobject.c dictiter_iternext_threadsafe:6044 (adjacent ATOMIC read of the SAME field: _Py_atomic_load_ptr_consume(&d->ma_values) -- proves the conversion is incomplete)",
+    "Include/cpython/pyatomic_gcc.h:565 _Py_atomic_store_ptr_release (the atomic release store)",
+    "Objects/dictobject.c set_values:215 (_Py_atomic_store_ptr_release(&mp->ma_values, values))",
+    "Objects/dictobject.c dictresize:2222 (set_values(mp, NULL) on split->combined conversion, oldvalues != NULL)"
+  ],
+  "race_kind": "incomplete atomic conversion (residual plain read vs atomic writer) in the lock-free FT dict iterator",
+  "shared_state": "PyDictObject.ma_values (split-table value-array pointer, published atomically by set_values, nulled on split->combined dictresize)",
+  "severity": "low (value-benign, crash-free; aligned-pointer read re-validated atomically one line later at :6044; QSBR retires the old values array so it is not a UAF) -- but a genuine data race in the routine that is explicitly the thread-safe lock-free iterator",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (~0.7s, exit 66); fresh full-shared-keys split instance each round so the first setattr forces the split->combined set_values(NULL) while iterators re-check HasSplitTable",
+  "suggested_fix": "hoist the atomic consume-load already on :6044 above the split-table test and branch on it (replace the plain _PyDict_HasSplitTable(d) at :6043 with a single _Py_atomic_load_ptr_consume(&d->ma_values)); or make _PyDict_HasSplitTable atomic under Py_GIL_DISABLED (heavier, ~15 call sites, most lock-held)",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/email_policy-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0 free-threading, --disable-gil --with-thread-sanitizer, Clang 21.1.8, heads/main:bcf98ddbc40)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (Jul 2026): Include/internal/pycore_dict.h:56 _PyDict_HasSplitTable is still a plain ((d)->ma_values != NULL) read, used lock-free at dictobject.c:6043",
+  "ruling": "Same class as Thomas Wouters (Yhg1s, CPython RM) 2026-07-15 ruling ('non-atomic reader should use the atomic accessor the writer already uses'); distinct dict-specific instance and a clearer one -- the adjacent line 6044 already does the atomic read, so it is an incomplete conversion inside the deliberately-lock-free FT iterator, not the 'don't share this object' bucket.",
+  "related": [
+    "TSAN-0013 (shared-container non-atomic readers -- same class)"
+  ],
+  "assessment": "Real, NEW, clean incomplete-atomic-conversion: dictiter_iternext_threadsafe:6043 plain-reads d->ma_values (_PyDict_HasSplitTable) that dictresize publishes atomically -- and the NEXT LINE 6043->6044 already reads it atomically (_Py_atomic_load_ptr_consume). Fits the Yhg1s shared-container ruling; same class as TSAN-0013, distinct dict instance. Fix: one line. Worth umbrella. Neighbor residual: ma_used at get_index_from_order:674."
+}

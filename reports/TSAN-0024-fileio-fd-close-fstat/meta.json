@@ -1,0 +1,57 @@
+{
+  "id": "TSAN-0024",
+  "slug": "fileio-fd-close-fstat",
+  "title": "_io.FileIO / select.epoll: closing a shared descriptor object races with reads of its plain int fd field (self->fd / self->epfd)",
+  "description": "Both _io.FileIO and select.epoll keep their OS descriptor in a plain int field. close() writes the -1 sentinel with no atomic and no shared lock, while fileno() (and, on a fresh open(), _Py_fstat_noraise's fstat) read it. Concurrently closing a shared descriptor object and reading its fd is a data race on the field (memory race on self->epfd / self->fd) and, once the descriptor number is recycled, an fd-reuse hazard on the descriptor itself. A fd-lifecycle CLUSTER of three seeded faces sharing one root cause.",
+  "signatures": [
+    "Modules/_io/fileio.c:internal_close | Python/fileutils.c:_Py_fstat_noraise",
+    "Modules/_io/fileio.c:_io_FileIO___init___impl | Python/fileutils.c:_Py_fstat_noraise",
+    "Modules/selectmodule.c:pyepoll_internal_close | Modules/selectmodule.c:select_epoll_fileno_impl"
+  ],
+  "reproduced_signatures": [
+    "Modules/selectmodule.c:pyepoll_internal_close:1335 | Modules/selectmodule.c:select_epoll_fileno_impl:1477 (epoll face (c), EXACT seeded match)",
+    "Modules/_io/fileio.c:internal_close:128 | Modules/_io/fileio.c:_io_FileIO_fileno_impl:612 (fileio face, same self->fd field that underlies seeded (a)/(b))"
+  ],
+  "sites": [
+    "Modules/_io/fileio.c internal_close:126 (READ self->fd: `if (self->fd >= 0)`)",
+    "Modules/_io/fileio.c internal_close:128 (WRITE self->fd = -1 -- plain, no lock/atomic; this repro's fileio write face)",
+    "Modules/_io/fileio.c internal_close:132 (close(fd) inside Py_BEGIN_ALLOW_THREADS -- the fd-resource write of seeded face (a))",
+    "Modules/_io/fileio.c _io_FileIO_fileno_impl:612 (READ self->fd: `if (self->fd < 0)` + PyLong_FromLong(self->fd) -- this repro's fileio read face)",
+    "Modules/_io/fileio.c _io_FileIO___init___impl:477 (fstat via _Py_fstat_noraise(self->fd, ...) inside Py_BEGIN_ALLOW_THREADS -- read side of seeded fd-resource face (a)/(b), on a freshly-opened / recycled fd)",
+    "Python/fileutils.c _Py_fstat_noraise:1285 (fstat(fd, status) -- the fd-resource read)",
+    "Modules/_io/fileio.c:65 (FileIO struct: `int fd;` -- plain field)",
+    "Modules/selectmodule.c pyepoll_internal_close:1335 (WRITE self->epfd = -1 -- plain, no atomic; epoll write face)",
+    "Modules/selectmodule.c select_epoll_fileno_impl:1477 (READ self->epfd: `if (self->epfd < 0)` -- epoll read face)",
+    "Modules/selectmodule.c:1315 (pyEpoll_Object struct: `SOCKET epfd;` -- plain field)",
+    "Modules/selectmodule.c:1435 (@critical_section on select.epoll.close ONLY; fileno/register/modify/unregister/poll/__enter__/__exit__ are NOT @critical_section -- asymmetric protection = smoking gun)"
+  ],
+  "race_kind": "fd-lifecycle: close() writing the -1 sentinel into a plain int fd field vs unlocked readers (fileno / fstat). Epoll face = memory race on self->epfd; fileio face = memory race on self->fd + fd-resource-reuse race (close(N) vs fstat(N) on a recycled descriptor)",
+  "shared_state": "the descriptor field of a shared descriptor object: fileio.fd (int) / pyEpoll_Object.epfd (SOCKET/int), and the underlying OS file descriptor it names",
+  "severity": "low-medium (confirmed TSan data race on the fd field; value-benign in isolation -- close stores -1, single aligned word -- but the unsynchronized lifecycle enables fd-reuse / descriptor confusion: a reader latched on fd N, or a fresh open() handed the recycled N, can fstat/read/write/epoll_ctl a descriptor another thread already closed that now names a different file, a use-after-close analog for OS fds; no crash observed in the TSan build)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_epoll": "repro_epoll.py",
+  "repro_reliability": "deterministic (exit 66 every run; epoll 4/4 runs SUMMARY pyepoll_internal_close:1335/select_epoll_fileno_impl:1477; fileio 2/2 runs SUMMARY alternating self->fd faces _io_FileIO_fileno_impl:612 / internal_close:126)",
+  "suggested_fix": "epoll (strongest): make self->epfd atomic (FT_ATOMIC_LOAD/STORE_INT relaxed) OR add @critical_section to fileno and the other epfd readers to match the already-@critical_section close. fileio: make self->fd atomic so close/fileno/__init__ agree without UB; the residual fd-resource-reuse race is inherent to closing a descriptor another thread still uses -> document ('do not use a file object from another thread while closing it', matching the fileio.c:129 comment).",
+  "status": "reported",
+  "upstream_issue": 151707,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/configparser-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, Clang 21.1.8)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (build of Jul 4 2026)",
+  "notes": "Cluster of 3 seeded faces, one root cause: a descriptor-owning object storing its fd in a plain int field that close() overwrites with -1 while other methods read it, unsynchronized. Epoll face (c) reproduced EXACTLY (pyepoll_internal_close vs select_epoll_fileno_impl). Fileio face reproduced on the underlying self->fd memory race (internal_close write vs _io_FileIO_fileno_impl read) -- same field that the seeded fd-resource race (a) rides on. The seeded (a) is TSan's libc fd interceptor (Location is file descriptor 2): close(N) in internal_close racing fstat(N) in a fresh open()'s __init__ after fd-number reuse; NOT force-reproducible in a bounded harness (3.2M free-running open/close iters did not trip it; a barrier-synchronized fd-reuse harness timed out under TSan), but the fleet caught it and the field race is the same root cause. FileIO has NO @critical_section on any method; select.epoll has @critical_section on close ONLY (asymmetric -> ineffective). Audit sibling descriptor objects with plain-int fd fields: _io.FileIO, select.epoll, select.kqueue, select.devpoll, _socket.",
+  "related_issues": [
+    {
+      "num": 151707,
+      "note": "Race conditions in FileIO (PR #151708, fileio.c only) -- covers the FileIO faces"
+    },
+    {
+      "num": 151364,
+      "note": "kqueue.kqfd close-vs-closed-getter race -- the SIBLING of our epoll(epfd) close-vs-fileno face; #151708 does NOT touch selectmodule, so the epoll face is in-scope and not explicitly covered"
+    }
+  ],
+  "assessment": "FileIO faces (internal_close/__init__ vs _Py_fstat, self->fd) = ALREADY REPORTED #151707/#151708. EPOLL face (select.epoll close @critical_section but fileno/register/poll not; epfd plain int) is a DISTINCT in-scope finding, sibling of the kqueue #151364 -- not covered by #151708. Audit select.epoll/devpoll alongside #151364."
+}

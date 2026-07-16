@@ -1,0 +1,40 @@
+{
+  "id": "TSAN-0022",
+  "slug": "elementtree-setevents",
+  "title": "_elementtree: XMLParser._setevents iterates a caller-supplied list with unlocked PySequence_Fast_GET_ITEM, racing list_resize on a concurrently-appended shared list",
+  "description": "_setevents calls PySequence_Fast(events_to_report), which returns a real list argument unchanged (no copy), then reads ob_item[i] via PySequence_Fast_GET_ITEM with no per-object lock. A concurrent list.append on the same shared list runs list_resize (memcpy + atomic republish of ob_item), racing the read. The racing state is the user's plain Python list, not the parser's internals -- the shared-list-mutation class surfaced through _setevents.",
+  "signatures": [
+    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Objects/listobject.c:list_resize",
+    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release",
+    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl (self/self face: shared parser)"
+  ],
+  "sites": [
+    "Modules/_elementtree.c _setevents_impl:4209:36 (READ ob_item[i] via PySequence_Fast_GET_ITEM(events_seq, i); events_seq aliases the caller's list)",
+    "Modules/_elementtree.c _setevents_impl:4208 (READ Py_SIZE via PySequence_Fast_GET_SIZE in the loop guard)",
+    "Objects/listobject.c list_resize:160 (WRITE memcpy old->new ob_item buffer -- the seeded vehicle's write face)",
+    "Objects/listobject.c list_resize:165 (atomic WRITE _Py_atomic_store_ptr_release(&self->ob_item) -- this repro's write face)",
+    "Objects/listobject.c list_resize:169 (free_list_items(old_items, _PyObject_GC_IS_SHARED(self)); QSBR-deferred free for shared lists)",
+    "Modules/_elementtree.c _setevents_impl:4187:5 (self/self face: Py_XSETREF(target->events_append, ...) unlocked refcount RMW when one parser is shared)"
+  ],
+  "race_kind": "shared-list mutated concurrently (unlocked PySequence_Fast_GET_ITEM read vs list_resize); related self/self face = unsynchronized shared-parser TreeBuilder state",
+  "shared_state": "the caller-supplied events_to_report list (PyListObject.ob_item buffer); for the self/self face: XMLParser.target (TreeBuilder) events_append / *_event_obj fields",
+  "severity": "low (assigned list_resize face is crash-safe in practice -- old ob_item buffer QSBR-deferred for shared lists -- and is user-side concurrent mutation of a passed-in list; the self/self face is more serious refcount RMW but needs a shared parser)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66 on every run; 2/2 confirmation runs)",
+  "suggested_fix": "caller-side: don't mutate the events list from another thread while a parser consumes it. Optional _elementtree hardening: snapshot with PySequence_List(events_to_report) (or Py_BEGIN_CRITICAL_SECTION on events_seq) instead of aliasing the caller's live list via PySequence_Fast + fast macros.",
+  "status": "folded",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-01/python/xml_etree_cElementTree-warning_threadsanitizer_data_race-tsanNEW-2"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer; _elementtree.cpython-316td)",
+  "assessment": "NOT standalone. list_resize/atomic faces = the TSAN-0013 shared-list class surfaced through _setevents (PySequence_Fast aliases the caller's live list, unlocked read). self/self face = TSAN-0009 don't-share-the-parser class (Py_XSETREF/Py_CLEAR refcount RMW). Signatures folded into 0013/0009.",
+  "notes": "_setevents is the internal path of the public XMLPullParser(events=...) and iterparse(source, events=...). PySequence_Fast returns a list/tuple arg as-is (Py_NewRef, no copy), so events_seq aliases the caller's live list; PySequence_Fast_GET_ITEM is the unlocked PyList_GET_ITEM macro. Verified the race is NOT parser-internal on this face by giving each reader its own XMLParser. The self/self face was separately confirmed (SUMMARY _elementtree.c:4187:5, exit 66) with one shared parser + thread-local events lists.",
+  "duplicate_of": [
+    "TSAN-0013 (list faces)",
+    "TSAN-0009 (parser self-face)"
+  ]
+}

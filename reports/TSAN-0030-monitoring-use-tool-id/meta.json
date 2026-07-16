@@ -1,0 +1,40 @@
+{
+  "id": "TSAN-0030",
+  "slug": "monitoring-use-tool-id",
+  "title": "sys.monitoring: concurrent use_tool_id() races on the interpreter-global tool-name registry (monitoring_use_tool_id_impl)",
+  "description": "monitoring_use_tool_id_impl does an unsynchronized check-then-act on interp->monitoring_tool_names[tool_id] (read :2190, write :2194) with no lock/critical-section/stop-the-world; concurrent sys.monitoring.use_tool_id() is a data race on interpreter-global instrumentation state, and a TOCTOU that also breaks the single-owner invariant and leaks a name reference.",
+  "signatures": [
+    "Python/instrumentation.c:monitoring_use_tool_id_impl | Python/instrumentation.c:monitoring_use_tool_id_impl"
+  ],
+  "sites": [
+    "Python/instrumentation.c monitoring_use_tool_id_impl:2190 (read: if (interp->monitoring_tool_names[tool_id] != NULL))",
+    "Python/instrumentation.c monitoring_use_tool_id_impl:2194 (write: interp->monitoring_tool_names[tool_id] = Py_NewRef(name))"
+  ],
+  "race_kind": "unsynchronized check-then-act (TOCTOU) on interpreter-global registry array",
+  "shared_state": "interp->monitoring_tool_names[PY_MONITORING_TOOL_IDS] (per-interpreter sys.monitoring tool-name table; embedded in global _PyRuntime; pycore_interp_structs.h:1039)",
+  "severity": "medium (data race + broken single-owner invariant + name refleak; sibling free_tool_id Py_CLEAR opens a use-after-free/double-free window on the same slot)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic (exit 66, triggers within seconds; NT=8 threads racing a freshly-freed tool id behind a barrier)",
+  "suggested_fix": "synchronize all four tool-registry accessors (use/clear/free/get). Preferred: bracket the check-then-act with _PyEval_StopTheWorld(interp)/_PyEval_StartTheWorld(interp) as _PyMonitoring_ClearToolId already does at instrumentation.c:2122. Alternative: a dedicated interpreter PyMutex held across every monitoring_tool_names[] access.",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-04/python/profiling_tracing-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40, Clang 21.1.8)",
+  "notes": "Vehicle reached the site indirectly via _lsprof.Profiler.enable() -> PyObject_CallMethod(...'use_tool_id'...); repro calls sys.monitoring.use_tool_id() directly. Same class as TSAN-0011 (unsynchronized interpreter-global instrumentation registry / audit hooks). All four accessors (use_tool_id :2190/:2194, clear_tool_id :2216, free_tool_id :2242/:2248 Py_CLEAR, get_tool :2270) are plain unlocked accesses and should be fixed together. The in-file precedent for synchronizing interpreter-global monitoring state (_PyEval_StopTheWorld) already exists a few lines up.",
+  "related_issues": [
+    {
+      "num": null,
+      "note": "Resembles the general 'sys.monitoring is not free-threading-safe' class; genuinely unsynchronized on current main. No specific upstream issue confirmed (offline)."
+    }
+  ],
+  "assessment": "Real, NEW, MEDIUM: unsynchronized check-then-act (TOCTOU) on interp->monitoring_tool_names[] -- two threads pass the in-use guard, both Py_NewRef(name) (leak + dup ownership); free_tool_id Py_CLEAR opens UAF/double-free. All 4 accessors (use/clear/free/get) unlocked. Same interpreter-global-instrumentation class as TSAN-0011 audit hooks. Fix: StopTheWorld (precedent _PyMonitoring_ClearToolId:2122) or PyMutex. No existing filing. Worth umbrella.",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",
+  "related": [
+    "TSAN-0011 (interpreter-global instrumentation state, unsynchronized -- same class)"
+  ]
+}

@@ -7,7 +7,8 @@
     "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:callProcessor",
     "Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse",
     "Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled | Modules/expat/xmlparse.c:PyExpat_XML_SetReparseDeferralEnabled",
-    "Modules/expat/xmlparse.c:poolGrow | Modules/expat/xmlparse.c:setContext"
+    "Modules/expat/xmlparse.c:poolGrow | Modules/expat/xmlparse.c:setContext",
+    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl"
   ],
   "sites": [
     "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3035 (write size 1: parser->m_reparseDeferralEnabled = enabled)",
@@ -38,6 +39,7 @@
   "assessment": "expected/low-value \u2014 bundled single-threaded libexpat; a parser is not thread-shareable by design. Catalog data point, not for individual filing.",
   "fleet02_notes": [
     "fleet-02: additional signature face(s) folded in: Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse",
-    "fleet-02: pyexpat self-races (SetReparseDeferralEnabled|self, poolGrow|setContext) folded in -- same bundled-libexpat parser-state class"
+    "fleet-02: pyexpat self-races (SetReparseDeferralEnabled|self, poolGrow|setContext) folded in -- same bundled-libexpat parser-state class",
+    "fleet-02: concurrent XMLParser._setevents on ONE shared parser races Py_XSETREF(events_append)/Py_CLEAR -- same don't-share-the-parser class (TSAN-0022 self-face folded)"
   ]
 }

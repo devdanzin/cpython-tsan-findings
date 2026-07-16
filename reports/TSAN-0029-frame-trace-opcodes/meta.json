@@ -1,0 +1,39 @@
+{
+  "id": "TSAN-0029",
+  "slug": "frame-trace-opcodes",
+  "title": "frameobject/sys: a running frame's f_trace is written by trace_trampoline without the frame's critical section, racing the @critical_section f_trace_opcodes/f_trace setters",
+  "description": "trace_trampoline does Py_XSETREF(frame->f_trace, result) on every traced event with no lock, while the Python-level frame.f_trace / frame.f_trace_opcodes accessors are all @critical_section. A second thread setting f_trace_opcodes on a running thread's frame (reachable via sys._current_frames()) reads self->f_trace under the frame lock while the owning thread races it with the unlocked trampoline write; the setter's critical section protects nothing.",
+  "signatures": [
+    "Python/sysmodule.c:trace_trampoline | Objects/frameobject.c:frame_trace_opcodes_set_impl"
+  ],
+  "sites": [
+    "Python/sysmodule.c trace_trampoline:1125 (WRITE Py_XSETREF(frame->f_trace, result); no critical section)",
+    "Objects/frameobject.c frame_trace_opcodes_set_impl:1155 (READ if(self->f_trace); setter is @critical_section)",
+    "Python/legacy_tracing.c sys_trace_instruction_func:305 (sibling face: READ frame->f_trace_opcodes flag on eval hot path)",
+    "Objects/frameobject.c frame_trace_set_impl:1881 / frame_trace_opcodes_set_impl:1154,1160 (WRITE side of f_trace / f_trace_opcodes under @critical_section)"
+  ],
+  "race_kind": "missing critical section on internal write path (per-frame legacy-trace state: f_trace pointer + f_trace_opcodes/f_trace_lines flags)",
+  "shared_state": "PyFrameObject.f_trace (PyObject*, per-frame local trace function) and adjacent f_trace_opcodes/f_trace_lines char flags; a running frame shared across threads via sys._current_frames()",
+  "severity": "low-moderate (real data race on frame->f_trace; latent refcount-corruption / use-after-free if f_trace is written from two threads, since the write path is Py_XSETREF; requires touching another thread's live frame)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic, ~0.6s, exit 66 (3/3 runs); run 1 hit the exact seeded signature (trace_trampoline write / frame_trace_opcodes_set_impl read), other runs surface sibling faces of the same shared-frame trace-state race",
+  "suggested_fix": "wrap the f_trace mutations in trace_trampoline (Py_XSETREF at :1125 and Py_CLEAR at :1120) in Py_BEGIN/END_CRITICAL_SECTION(frame), matching the @critical_section frame accessors; use FT_ATOMIC load/store for the f_trace_lines/f_trace_opcodes char flags read on the eval hot path. A relaxed atomic on the f_trace pointer alone is insufficient because it participates in refcounting.",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-04/python/bdb-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40)",
+  "notes": "Legacy sys.settrace layer bridged onto PEP 669 (sys.monitoring) instrumentation. The @critical_section decorators on frame_trace_get/set and frame_trace_opcodes_get/set are recent FT hardening; the internal trace trampoline + eval-loop reads (instrumentation.c:1366 f_trace_lines, legacy_tracing.c:190/305 f_trace_opcodes) were not brought under the same discipline. bdb only touches the current thread's own frames, so the debugger itself does not trigger it; the race needs a second thread mutating a running thread's frame. Audit Objects/frameobject.c against the gh-116738 free-threading audit list.",
+  "related_issues": [
+    {
+      "num": 116738,
+      "note": "free-threading thread-safety audit umbrella; the trace trampoline / per-frame f_trace mutation path should be on that list (unverified, no internet)."
+    }
+  ],
+  "assessment": "Real, NEW, LOW-PRIORITY design-edge: trace_trampoline writes frame->f_trace via Py_XSETREF unlocked while the Python-level f_trace/f_trace_opcodes accessors are @critical_section. Only bites when deliberately mutating another thread's currently-executing frame (via sys._current_frames()); normal debuggers touch own-thread frames only. Refcount-UAF potential but low reach. Umbrella-candidate at most.",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (Jul 2026)"
+}

@@ -1,0 +1,45 @@
+{
+  "id": "TSAN-0027",
+  "slug": "type-add-subclass",
+  "title": "typeobject: base type's tp_subclasses registry written lock-free in subclass dealloc, racing lock-held subclass creation (add_subclass vs clear_tp_subclasses)",
+  "description": "add_subclass(base, type) reads base->tp_subclasses under BEGIN_TYPE_LOCK (PyType_Ready), but the subclass dealloc path (type_dealloc -> remove_subclass -> clear_tp_subclasses) writes/clears base->tp_subclasses with no lock. Concurrently creating a subclass of a shared base while another subclass of the same base is GC-deallocated races on the base's shared tp_subclasses field.",
+  "signatures": [
+    "Objects/typeobject.c:add_subclass | Objects/typeobject.c:clear_tp_subclasses"
+  ],
+  "sites": [
+    "Objects/typeobject.c lookup_tp_subclasses (read: return base->tp_subclasses), inlined into add_subclass",
+    "Objects/typeobject.c add_subclass:9701 (subclasses = lookup_tp_subclasses(base); under BEGIN_TYPE_LOCK via PyType_Ready:9619)",
+    "Objects/typeobject.c clear_tp_subclasses:728 (write: Py_CLEAR(base->tp_subclasses))",
+    "Objects/typeobject.c remove_subclass:9784 (if PyDict_Size(subclasses)==0: clear_tp_subclasses(base); NO type lock)",
+    "Objects/typeobject.c type_dealloc_common:6847 / type_dealloc:7006 (dealloc path holds no type lock)",
+    "Python/gc_free_threading.c gc_collect_internal:2176 delete_garbage runs after _PyEval_StartTheWorld:2161 (world running)"
+  ],
+  "race_kind": "missing-lock (asymmetric): shared type registry mutated lock-free on dealloc vs lock-held on create",
+  "shared_state": "PyTypeObject.tp_subclasses of the shared base type (the base's live-subclasses registry dict + the pointer field)",
+  "severity": "medium (data race on a shared pointer field; Py_CLEAR can free the subclasses dict under a concurrent borrowed-ref PyDict_SetItem -> potential use-after-free/lost update; observed as clean TSan abort exit 66, no segfault in these runs)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "reliable (3/3 runs, exit 66, ~5-24s; 8 threads x 6000 rounds creating+GC-collecting subclasses of one shared Base)",
+  "suggested_fix": "take BEGIN_TYPE_LOCK() on the dealloc path (remove_subclass / remove_all_subclasses / type_dealloc_common) so lookup/PyDict_DelItem/clear_tp_subclasses serialize against add_subclass, mirroring PyType_Ready; making tp_subclasses atomic fixes the pointer read/write but not the dict free/UAF window",
+  "status": "reported",
+  "upstream_issue": 151377,
+  "found_date": "2026-07-15",
+  "found_in": "fusil-tsan_fleet_02",
+  "vehicles": [
+    "inst-02/python/email_policy-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, Clang 21)",
+  "notes": "Read side holds interp->types.mutex (BEGIN_TYPE_LOCK in PyType_Ready:9619); write side (type_dealloc -> remove_subclass -> clear_tp_subclasses) takes no lock. GC drives the write with the world running (delete_garbage after _PyEval_StartTheWorld). Belongs to the FT type-object audit family (gh-116738). Audit other tp_subclasses mutators (init_tp_subclasses, _PyStaticType_* variants) for symmetric lock coverage.",
+  "related_issues": [
+    {
+      "num": 127192,
+      "note": "concurrent construction of ONE shared object - OUT OF SCOPE; this is DISTINCT (distinct subclasses mutating a shared base's registry)"
+    },
+    {
+      "num": 116738,
+      "note": "free-threading type-object safety meta-issue; tp_subclasses dealloc-path mutation not covered by the add-side type lock"
+    }
+  ],
+  "assessment": "Real (asymmetric lock: create path holds types.mutex, dealloc path doesn't; Py_CLEAR UAF window). ALREADY REPORTED #151377 (type slots + tp_subclasses between type_setattro/type_new/type_dealloc). Not for separate filing.",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)"
+}

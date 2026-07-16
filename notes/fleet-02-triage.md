@@ -53,6 +53,40 @@
 **Net from the 7 deep-dives: 1 genuinely-new filable bug (TSAN-0018 split-keys readers), 3 already
 reported (#151627/#153291/#149142), 1 dup of a catalog entry (0002), 1 out-of-scope (OpenSSL).**
 
-## Remaining new singles not yet assigned (candidates for a later pass)
+## Candidate deep-dive RESULTS (TSAN-0022..0030 — all reproduced exit 66, re-verified)
 
-`_elementtree XMLParser__setevents` cluster (setevents|setevents ×2, |list_resize, |_Py_atomic_store_ptr_release) — concurrent parser `_setevents`; `dict dictiter_iternext_threadsafe`; `subtype_getweakref` (weakref); `fileio close|_Py_fstat`, `FileIO __init__|_Py_fstat`, `epoll close|fileno` (fd/fstat lifecycle); `frame_trace_opcodes_set|trace_trampoline`; `monitoring_use_tool_id`; `add_subclass|clear_tp_subclasses`; `rlock_repr`; `cfunction_vectorcall_NOARGS` (2, = the tzset glibc FP, still un-suppressible via generic signature).
+Second round of 9 deep-dives on the remaining new singles. **Theme: the FT-hardening effort is fast
+and comprehensive — most were already filed.** Net: 2 clean-new + 1 low-priority-new + 1 new epoll
+face; 4 already reported (1 already fixed); 1 folds into existing classes.
+
+**Genuinely NEW (umbrella candidates):**
+- **TSAN-0026 dict `dictiter_iternext_threadsafe`** — cleanest: `:6043` plain-reads `d->ma_values`
+  (`_PyDict_HasSplitTable`) that `dictresize` publishes atomically, and the NEXT line `:6044`
+  already reads it atomically (`_Py_atomic_load_ptr_consume`). One-line incomplete-atomic-conversion,
+  Yhg1s shared-container class (like TSAN-0013, distinct dict instance). Low sev, no filing.
+- **TSAN-0030 sys.monitoring `use_tool_id`** — MEDIUM: unsynchronized check-then-act (TOCTOU) on
+  interp-global `monitoring_tool_names[]`; both threads pass the guard → leak + dup ownership; +
+  `free_tool_id` `Py_CLEAR` UAF/double-free. All 4 accessors unlocked. Class of TSAN-0011. No filing.
+- **TSAN-0024 epoll face** — `select.epoll.close` is `@critical_section` but `fileno`/`register`/`poll`
+  aren't, `epfd` a plain int. In-scope; SIBLING of `kqueue` #151364 (not covered by the FileIO fix
+  #151708). The FileIO faces of 0024 = already reported #151707.
+- **TSAN-0029 frame `f_trace`** — LOW-PRIORITY: `trace_trampoline` writes `frame->f_trace` unlocked
+  while the `f_trace`/`f_trace_opcodes` accessors are `@critical_section`; only bites when mutating
+  another thread's *executing* frame via `sys._current_frames()`. New, umbrella-candidate at most.
+- **TSAN-0025 readline `set_auto_history`** — NEW field (`static int should_auto_add_history`, plain
+  write), DISTINCT from #153291 (pointer getters) but same readline FT-migration → fold into that
+  cleanup.
+
+**Already reported (FT hardening moves fast):**
+- **TSAN-0023** weakref `subtype_getweakref` → **#149816** / PR #150247.
+- **TSAN-0027** `tp_subclasses` add-vs-clear → **#151377**.
+- **TSAN-0028** RLock `repr` → **#153292** / PR #153299 (already CLOSED/FIXED). *fusil deduper note:*
+  it was mislabeled `tsanFRAME` because the `FRAMEWORK_FILES` regex matches `_threadmodule.c`, but
+  `rlock_repr` is a public `tp_repr` — a deduper over-suppression risk to fix.
+- **TSAN-0024** FileIO faces → **#151707** / PR #151708.
+
+**Folded:** **TSAN-0022** elementtree `_setevents` → not standalone; list faces → **TSAN-0013**
+(aliases the caller's live list via `PySequence_Fast`), self-face → **TSAN-0009** (don't-share-parser).
+
+Still surfacing as NEW but known/FP: `tp_new_wrapper` (OpenSSL, TSAN-0020), `cfunction_vectorcall_NOARGS`
+(tzset glibc FP).

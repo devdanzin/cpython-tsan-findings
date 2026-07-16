@@ -7,7 +7,9 @@
     "Include/object.h:_Py_SIZE_impl | Include/object.h:_Py_SIZE_impl",
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Include/object.h:_Py_SIZE_impl",
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/stringlib/join.h:stringlib_bytes_join",
-    "Objects/listobject.c:list_resize | Objects/stringlib/join.h:stringlib_bytes_join"
+    "Objects/listobject.c:list_resize | Objects/stringlib/join.h:stringlib_bytes_join",
+    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Objects/listobject.c:list_resize",
+    "Modules/_elementtree.c:_elementtree_XMLParser__setevents_impl | Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release"
   ],
   "sites": [
     "Include/object.h _Py_SIZE_impl (plain Py_SIZE read, e.g. UNPACK_SEQUENCE)",
@@ -18,15 +20,24 @@
   "shared_state": "the shared list's ob_item pointer / ob_size",
   "severity": "low (value-benign on aligned HW) but a genuine data race; ruled a bug by CPython",
   "reproduced": true,
-  "repro": ["repro_size.py (Py_SIZE face)", "repro_join.py (bytes_join face)"],
+  "repro": [
+    "repro_size.py (Py_SIZE face)",
+    "repro_join.py (bytes_join face)"
+  ],
   "repro_reliability": "deterministic (exit 66)",
   "suggested_fix": "make the list readers use the atomic accessors the writer already uses -- _PyList_GetItemRef / an atomic Py_SIZE load -- rather than plain PyList_GET_ITEM / Py_SIZE. Systemic: audit list (and other builtin container) read sites for non-atomic access under FT.",
   "status": "confirmed",
   "upstream_issue": null,
   "ruling": "Thomas Wouters (Yhg1s, CPython RM), 2026-07-15: sent shared_list_race.py + notes/shared-builtin-concurrent-access.md verbatim, reply 'Yes, that's a bug.'",
-  "related": ["TSAN-0010 (marshal w_complex_object reader = another face)", "TSAN-0014 (concurrent list.sort of a shared list)"],
+  "related": [
+    "TSAN-0010 (marshal w_complex_object reader = another face)",
+    "TSAN-0014 (concurrent list.sort of a shared list)"
+  ],
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, heads/main:bcf98ddbc40)",
-  "notes": "Formerly SUPPRESSED as an assumed non-bug ('concurrent unsynchronized access to a shared builtin'); un-suppressed after the Yhg1s ruling. Py_SIZE, bytes_join, and marshal (TSAN-0010) are the same class with different reader call sites. Cross-check gh-116738: this is exactly the builtin-thread-safety audit's remit."
+  "notes": "Formerly SUPPRESSED as an assumed non-bug ('concurrent unsynchronized access to a shared builtin'); un-suppressed after the Yhg1s ruling. Py_SIZE, bytes_join, and marshal (TSAN-0010) are the same class with different reader call sites. Cross-check gh-116738: this is exactly the builtin-thread-safety audit's remit.",
+  "fleet02_notes": [
+    "fleet-02: _elementtree XMLParser._setevents aliases the caller's live list via PySequence_Fast and reads it unlocked -- another reader face of this shared-list class (TSAN-0022 folded)"
+  ]
 }
