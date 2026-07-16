@@ -34,15 +34,21 @@ just before the detach reads slots as `binarysort` reorders them. The observed i
 crash-safe (the slots hold valid objects, just permuted), but it is an unsynchronized mutation of a
 shared list's storage — unlike every other `list` mutator, which takes the object's critical section.
 
-## Reproduction status — honest caveat
+## Reproduction — solved by shrinkray (sort-vs-**read**, not sort-vs-sort)
 
-**Not reproduced in isolation.** The race window (between `list_sort_impl` saving `ob_item` at
-`:2969` and nulling it at `:2972`) is ~3 instructions, so two sorts almost never overlap inside it:
-concurrent-sorter loops at 4×200k and 16×400k iterations (`repro_attempt.py`) never triggered it.
-The fuzzer fleet caught it **once** (vehicle `inst-02/.../email__header_value_parser-…`, see
-`tsan_report.txt`), which is what seeded this entry. The mechanism is fully grounded in the source;
-only the deterministic isolated trigger is missing. (This mirrors the microscopic-window difficulty
-of other detach/lazy-init races.)
+**Reproduced in isolation** (`repro.py`). The key was realizing it is a *sort-vs-read* race, not
+sort-vs-sort: a plain multi-thread `list.sort()` loop never triggers it (all sorters detach and
+rarely overlap), but a `sort()` racing a concurrent *reader* does — the reader loads `ob_item` and
+reads slots via `list_get_item_ref`/`_Py_TryXGetRef` while the in-place sort rewrites the same
+array, a much wider window.
+
+The fleet vehicle (`inst-02/.../email__header_value_parser-…`) was minimized with **shrinkray**
+(994 lines / 32.9 kB → 28 lines) with the interestingness predicate "TSan reports `in binarysort`".
+It isolated the mechanism cleanly: **`email._header_value_parser.Comment` subclasses `list`**, so
+sharing one instance across threads and hammering its methods runs `list.sort()` (writer)
+concurrently with method/iteration reads of the same list (reader). The minimized reproducer trips
+the race in **~15–30 % of single runs** (run it a few times / in a loop); the un-minimized vehicle
+reproduces 100 % but is 994 lines. Confirmed report: `tsan_report_isolated.txt`.
 
 ## Suggested fix
 
@@ -57,4 +63,4 @@ shared-list class); this is the *mutate-vs-mutate* variant.
 
 ---
 
-*Part of an upcoming umbrella issue tracking free-threading data races found by `fusil --tsan`. Ruled a bug; not yet individually filed. Isolated reproducer still open.*
+*Part of an upcoming umbrella issue tracking free-threading data races found by `fusil --tsan`. Ruled a bug; reproduced in isolation (shrinkray); not yet individually filed.*
