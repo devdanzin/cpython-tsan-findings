@@ -14,35 +14,19 @@ filed, each gist gets a trailing note pointing back at it (see `scripts/` / the 
 
 ### What happened?
 
-ThreadSanitizer fuzzing of free-threaded CPython `main` turned up **15 data races** where a
-built-in object or interpreter-global state is accessed concurrently without the atomics or
-critical section the surrounding code (or the documentation) already assumes. Each has a minimal,
-stdlib-only reproducer, the raw TSan report, a root-cause analysis against current-`main` source,
-and a suggested fix, published as a self-contained gist (linked below).
+ThreadSanitizer fuzzing of free-threaded CPython `main` turned up **15 data races** where a built-in object or interpreter-global state is accessed concurrently without the atomics or critical section the surrounding code (or the documentation) already assumes. Each has a minimal, stdlib-only reproducer, the raw TSan report, a root-cause analysis against current-`main` source, and a suggested fix, published as a self-contained gist (linked below).
 
-They split into two groups: **9 are new defects**, and **6 are residuals of free-threading work
-that is already merged or documented** — a specific reader/field/path that a completed conversion
-left behind. The residuals are the lowest-risk to fix (the pattern and the fix are already in the
-tree next to them); the related issue/PR is named in the table.
+They split into two groups: **9 are new defects**, and **6 are residuals of free-threading work that is already merged or documented** — a specific reader/field/path that a completed conversion left behind. The residuals are the lowest-risk to fix (the pattern and the fix are already in the tree next to them); the related issue/PR is named in the table.
 
-I'm filing them under one umbrella so they can be picked off individually rather than flooding the
-tracker. **To take one:** open a normal CPython issue or PR and drop a comment here with the link —
-I'll mark it in the table. If any is a duplicate or a non-bug, say so and I'll annotate it.
+I'm filing them under one umbrella so they can be picked off individually rather than flooding the tracker. **To take one:** open a normal CPython issue or PR and drop a comment here with the link — I'll mark it in the table. If any is a duplicate or a non-bug, say so and I'll annotate it.
 
-Found with [fusil](https://github.com/devdanzin/fusil)'s `--tsan` mode (fusil originally by
-@vstinner). Reports and reproducers were drafted with AI assistance (Claude Code) and then reviewed
-and re-verified by hand — see *Disclosure*.
+Found with [fusil](https://github.com/devdanzin/fusil)'s `--tsan` mode (fusil originally by @vstinner). Reports and reproducers were drafted with AI assistance (Claude Code) and then reviewed and re-verified by hand — see *Disclosure*.
 
 ### Reproducing
 
-- Found on `main` (3.16.0a0) on a `--disable-gil --with-thread-sanitizer` debug build. These are
-  concurrency bugs, not tied to an exact revision.
-- Each gist ships a minimal stdlib-only `TSAN-NNNN-repro.py`. Run it on a free-threaded TSan build
-  with `PYTHON_GIL=0`; a real race exits non-zero and prints `WARNING: ThreadSanitizer: data race`.
-  (TSan needs ASLR reduced — e.g. `setarch -R` — and an unlimited `RLIMIT_AS`, or it runs degraded.)
-- Most are **value-benign on aligned hardware** but are genuine C-level data races (formally UB, and
-  TSan-reported); a few carry a latent UAF/leak/crash, called out per report. Two (**TSAN-0014**,
-  **TSAN-0034**) are root-caused from source but not reproduced in isolation — noted as such.
+- Found on `main` (3.16.0a0) on a `--disable-gil --with-thread-sanitizer` debug build. These are concurrency bugs, not tied to an exact revision.
+- Each gist ships a minimal stdlib-only `TSAN-NNNN-repro.py`. Run it on a free-threaded TSan build with `PYTHON_GIL=0`; a real race exits non-zero and prints `WARNING: ThreadSanitizer: data race`. (TSan needs ASLR reduced — e.g. `setarch -R` — and an unlimited `RLIMIT_AS`, or it runs degraded.)
+- Most are **value-benign on aligned hardware** but are genuine C-level data races (formally UB, and TSan-reported); a few carry a latent UAF/leak/crash, called out per report. One (**TSAN-0014**) is root-caused from source but not reproduced in isolation — noted as such.
 
 ### New free-threading defects (9)
 
@@ -62,8 +46,7 @@ Status legend: blank = not yet filed · `#N` = open issue/PR · `#N FIXED` = fil
 
 ### Residuals of existing / documented free-threading work (6)
 
-These are a reader/field/path left behind by a completed (or documented) conversion — likely best
-handled as a follow-up to the named issue rather than as fresh bugs.
+These are a reader/field/path left behind by a completed (or documented) conversion — likely best handled as a follow-up to the named issue rather than as fresh bugs.
 
 | Report | Race | Related upstream | Status |
 |---|---|---|---|
@@ -72,27 +55,19 @@ handled as a follow-up to the named issue rather than as fresh bugs.
 | [TSAN-0014](https://gist.github.com/devdanzin/c1a716a8ad7dff56554f291376eaef66) | shared `list`: `list.sort()`'s in-place `binarysort` rewrite (no critical section) races a concurrent lock-free reader | sort-path residual of the gh-129069 / gh-142519 list class | |
 | [TSAN-0025](https://gist.github.com/devdanzin/f0b4f8859da46e985f23aa9cadaaa4c9) | `readline.c`: `set_auto_history()` writes the module-global `should_auto_add_history` (a plain `static int`) unsynchronized | belongs with the readline FT cleanup (gh-153291) | |
 | [TSAN-0029](https://gist.github.com/devdanzin/987cdee793b09c28d9a337c6f91647a7) | `frameobject.c`/`sysmodule.c`: `trace_trampoline` writes a running frame's `f_trace` with no critical section while the `f_trace`/`f_trace_opcodes` accessors are `@critical_section` | the legacy `settrace` path not brought under the recent frame-accessor FT hardening; gh-116738 remit | (low; needs mutating another thread's live frame) |
-| [TSAN-0034](https://gist.github.com/devdanzin/1e787ea3420c990f4c7728048184e6a4) | finalization: `handle_thread_shutdown_exception` reads `interp->threads.head` in an `assert()` **before** `_PyEval_StopTheWorld`, racing an exiting thread's `HEAD_LOCK`-held `tstate_delete_common` write | — | (debug-only: the read is inside the assert; not reproduced in isolation) |
+| [TSAN-0034](https://gist.github.com/devdanzin/1e787ea3420c990f4c7728048184e6a4) | finalization: `handle_thread_shutdown_exception` reads `interp->threads.head` in an `assert()` **before** `_PyEval_StopTheWorld`, racing a concurrent `HEAD_LOCK`-held write of it (`add_threadstate` on create / `tstate_delete_common` on exit) | — | (debug-only: the read is inside the assert; reproduced in isolation, ~44 %/run) |
 
 ### Disclosure
 
-These findings were produced with AI assistance: fusil's `--tsan` mode generated the concurrency
-stress that surfaced them, and Claude Code drafted the reports and reduced the reproducers. Every
-reproducer was then run and re-verified by hand on the free-threaded TSan build, and every root
-cause was checked against current-`main` source. Where a finding is not reproduced in isolation, it
-says so.
+These findings were produced with AI assistance: fusil's `--tsan` mode generated the concurrency stress that surfaced them, and Claude Code drafted the reports and reduced the reproducers. Every reproducer was then run and re-verified by hand on the free-threaded TSan build, and every root cause was checked against current-`main` source. Where a finding is not reproduced in isolation, it says so.
 
 ---
 
 ## Not in the umbrella (for our own tracking)
 
-- **Already filed:** TSAN-0007 (#153296), TSAN-0010 (#151370), TSAN-0012 (#151363), TSAN-0015
-  (#151627), TSAN-0016 (#153291), TSAN-0019 (#149142), TSAN-0023 (#149816), TSAN-0024 (#151707),
-  TSAN-0027 (#151377), TSAN-0028 (#153292, fixed), TSAN-0032 (#149816), **TSAN-0033 (#153809** — the
-  `_asyncio.Task` refcount-0-while-tracked crash, filed standalone as it hangs/crashes release builds).
-- **Not a bug / out of scope:** TSAN-0003 (glibc/TSan FP), TSAN-0020 (OpenSSL libcrypto),
-  TSAN-0008 (residual of gh-116738/#138229 — a note at most), TSAN-0009 (bundled single-threaded
-  libexpat, don't-share-the-parser).
+- **Already filed:** TSAN-0007 (#153296), TSAN-0010 (#151370), TSAN-0012 (#151363), TSAN-0015 (#151627), TSAN-0016 (#153291), TSAN-0019 (#149142), TSAN-0023 (#149816), TSAN-0024 (#151707),
+  TSAN-0027 (#151377), TSAN-0028 (#153292, fixed), TSAN-0032 (#149816), **TSAN-0033 (#153809** — the `_asyncio.Task` refcount-0-while-tracked crash, filed standalone as it hangs/crashes release builds).
+- **Not a bug / out of scope:** TSAN-0003 (glibc/TSan FP), TSAN-0020 (OpenSSL libcrypto), TSAN-0008 (residual of gh-116738/#138229 — a note at most), TSAN-0009 (bundled single-threaded libexpat, don't-share-the-parser).
 - **Folded:** TSAN-0004→0001, TSAN-0010(face)→0013, TSAN-0017→0002, TSAN-0021/0022→0018/0013/0009.
 
 ## Gist URLs (for the post-filing backlink pass)

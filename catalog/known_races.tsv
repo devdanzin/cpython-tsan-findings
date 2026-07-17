@@ -99,6 +99,7 @@ TSAN-0031	Modules/_elementtree.c:treebuilder_handle_end | Modules/_elementtree.c
 TSAN-0031	Modules/_elementtree.c:treebuilder_handle_pi | Modules/_elementtree.c:treebuilder_handle_start
 TSAN-0031	Modules/_elementtree.c:treebuilder_handle_start | Modules/_elementtree.c:treebuilder_handle_start
 TSAN-0032	Modules/_io/bufferedio.c:_io__Buffered_detach_impl | Modules/_io/bufferedio.c:buffered_iternext
+TSAN-0034	Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate.c:add_threadstate
 TSAN-0034	Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate.c:tstate_delete_common
 TSAN-0035	Modules/socketmodule.c:sock_gettimeout_impl | Modules/socketmodule.c:sock_setblocking
 TSAN-0036	Python/ceval.c:_PyEval_NoToolsForUnwind | Python/instrumentation.c:force_instrument_lock_held

@@ -57,9 +57,46 @@ So it is the classic shape: a lock-free reader against a lock-holding writer. It
 
 The racing read exists **only inside `assert()`**, which `NDEBUG` compiles out, so a release build never performs it and cannot hit this race. The worst case on a debug build is a bogus assertion outcome. This is *not* in the class of TSAN-0033 (memory-safety, reproduces and wedges/crashes on release).
 
-## Reproduction status
+## Reproducer
 
-**Not reproduced in isolation** — observed once in `fusil-tsan_fleet_04` (raw report in `tsan_report.txt`). A targeted attempt (override `threading._shutdown` so it raises — which does reach the handler, confirmed by its `PyErr_FormatUnraisable` output — while 400 no-op threads exit concurrently) did not trip TSan in 14 runs. The window is a single unlocked pointer read against a locked write. The root cause is nonetheless unambiguous from the source above.
+`repro.py` (stdlib only) reproduces this in isolation — **~44 % per single run (11/25)**, so a short
+loop makes it reliable:
+
+```python
+import sys, _thread, threading, time
+assert not sys._is_gil_enabled(), "need a --disable-gil build with PYTHON_GIL=0"
+
+# Make threading._shutdown() raise so wait_for_thread_shutdown() calls the handler.
+def _boom():
+    raise RuntimeError("forced shutdown exception")
+threading._shutdown = _boom
+
+# Keep OTHER threads continuously creating/destroying thread-states through finalization,
+# so a HEAD_LOCK write of interp->threads.head is in TSan's history when the handler reads
+# it unlocked. (Cheap _thread churn; avoids the threading module's own _shutdown bookkeeping.)
+_running = True
+def churn():
+    while _running:
+        try:
+            _thread.start_new_thread(lambda: None, ())
+        except RuntimeError:
+            time.sleep(0)
+
+for _ in range(6):
+    _thread.start_new_thread(churn, ())
+time.sleep(0.1)  # let the churn saturate
+# fall off the end -> Py_FinalizeEx -> wait_for_thread_shutdown -> _boom() -> handler reads threads.head
+```
+
+The key over the first attempt (which created many threads *once at startup* — all dead well before
+finalization, 0/14): the churn writes `interp->threads.head` **continuously, right through
+finalization**, so the handler's one-shot read almost always overlaps an unsynchronized write.
+
+TSan reports whichever writer it catches. The reproducer hits the **create** side —
+`add_threadstate` (`pystate.c:1661`), via `_PyThreadState_New` ← `ThreadHandle_start` — while the
+original fleet vehicle hit the **delete** side, `tstate_delete_common` (`pystate.c:1936`). Both write
+`interp->threads.head` under `HEAD_LOCK` and race the same unlocked read at `pylifecycle.c:3830`; the
+raw block in `tsan_report.txt` is the create-side face.
 
 ## Suggested fix
 

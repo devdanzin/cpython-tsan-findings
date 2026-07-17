@@ -4,7 +4,8 @@
   "title": "interpreter finalization: handle_thread_shutdown_exception reads interp->threads.head in an assert() before _PyEval_StopTheWorld, racing an exiting thread's tstate_delete_common",
   "description": "During Py_FinalizeEx, wait_for_thread_shutdown() calls threading._shutdown(); if that raises, handle_thread_shutdown_exception() runs. Its first act is assert(interp->threads.head != NULL) (Python/pylifecycle.c:3830) -- an UNLOCKED read of the interpreter's thread-list head, performed BEFORE the _PyEval_StopTheWorld(interp) on the next line. A worker thread exiting concurrently writes that same field in tstate_delete_common (Python/pystate.c:1936) while holding HEAD_LOCK(runtime). Reader unlocked vs writer locked = a data race on the global _PyRuntime. The function's own comment (\"We don't have to worry about locking this because the world is stopped\") is correct for the loop that follows, but does not cover this assert, which precedes the stop-the-world.",
   "signatures": [
-    "Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate.c:tstate_delete_common"
+    "Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate.c:tstate_delete_common",
+    "Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate.c:add_threadstate"
   ],
   "sites": [
     "Python/pylifecycle.c handle_thread_shutdown_exception:3830 (READ, unlocked: assert(interp->threads.head != NULL), before _PyEval_StopTheWorld at :3831)",
@@ -14,10 +15,10 @@
   ],
   "race_kind": "unlocked read (inside an assert) vs HEAD_LOCK-protected write of the interpreter thread-list head, during finalization",
   "shared_state": "PyInterpreterState.threads.head, in the global _PyRuntime",
-  "severity": "LOW / debug-build only. The racing read exists ONLY in the assert(), which is compiled out under NDEBUG, so release builds do not perform it and cannot hit this race. Worst case on a debug build is a bogus assertion outcome; there is no release-build consequence. Contrast TSAN-0033, which is memory-safety and bites on release.",
-  "reproduced": false,
-  "repro": null,
-  "repro_reliability": "NOT reproduced in isolation. Observed once (1 vehicle) in fusil-tsan_fleet_04. A targeted attempt (override threading._shutdown to raise -- which does reach the handler, confirmed by its PyErr_FormatUnraisable output -- while 400 no-op threads exit concurrently) did not trip TSan in 14 runs: the window is a single unlocked pointer read against a locked write. Root cause is nonetheless unambiguous from the source lines above.",
+  "severity": "LOW / debug-build only. The racing read exists ONLY inside the assert(), which is compiled out under NDEBUG, so release builds do not perform it and cannot hit this race. Worst case on a debug build is a bogus assertion outcome; there is no release-build consequence. (Now reproduced in isolation, but that does not change the debug-only reach.)",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "REPRODUCED in isolation 2026-07-17 (repro.py): ~44% per single run (11/25), so a short loop makes it reliable. Override threading._shutdown to raise (so wait_for_thread_shutdown reaches the handler) + keep several _thread.start_new_thread churners creating/destroying thread-states through finalization, so a HEAD_LOCK write of interp->threads.head is in TSan's history when the handler reads it unlocked. TSan reports whichever writer it catches: the repro hits the CREATE side (add_threadstate:1661), the original fleet vehicle hit the DELETE side (tstate_delete_common:1936) -- same field, same unlocked read, same bug.",
   "suggested_fix": "Move the assert below _PyEval_StopTheWorld(interp) (one line), so it is covered by the same stop-the-world the following _Py_FOR_EACH_TSTATE_UNLOCKED loop relies on -- which is exactly what the function's existing comment already assumes. Dropping the assert entirely would also do.",
   "status": "confirmed",
   "upstream_issue": null,
@@ -28,7 +29,7 @@
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40)",
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40",
-  "notes": "Issue search found no filing for this: 'handle_thread_shutdown_exception' has no hits at all. Neighbours are different finalization bugs -- #144616 (Py_FinalizeEx / _PyObject_Dump + lost sys.stderr), #122517 (Py_EndInterpreter deadlock), #113148 (crash due to exception in threading._shutdown -- most likely the issue this handler was ADDED to fix), #117657 (make TSan tests pass with the GIL disabled). Low value on its own; catalogued mainly so fleets dedupe it instead of resurfacing it as tsanNEW every run, and because the fix is a one-line move.",
+  "notes": "Issue search found no filing for this: 'handle_thread_shutdown_exception' has no hits at all. Neighbours are different finalization bugs -- #144616 (Py_FinalizeEx / _PyObject_Dump + lost sys.stderr), #122517 (Py_EndInterpreter deadlock), #113148 (crash due to exception in threading._shutdown -- most likely the issue this handler was ADDED to fix), #117657 (make TSan tests pass with the GIL disabled). Low value on its own; catalogued mainly so fleets dedupe it instead of resurfacing it as tsanNEW every run, and because the fix is a one-line move. REPRODUCED 2026-07-17 after the TSan build was rebuilt: the earlier 0/14 attempt created threads once at startup (all dead before finalization); continuous _thread churn through finalization reproduces at ~44%/run. Writer face is add_threadstate (create) in the repro, tstate_delete_common (delete) in the original vehicle -- both write interp->threads.head under HEAD_LOCK and race the same unlocked read at pylifecycle.c:3830.",
   "related": [
     "TSAN-0033 (also an _asyncio/finalization-adjacent teardown bug, but memory-safety and release-affecting)"
   ],
