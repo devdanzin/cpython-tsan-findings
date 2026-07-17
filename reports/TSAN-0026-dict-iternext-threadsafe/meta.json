@@ -36,5 +36,12 @@
   "related": [
     "TSAN-0013 (shared-container non-atomic readers -- same class)"
   ],
-  "assessment": "Real, NEW, clean incomplete-atomic-conversion: dictiter_iternext_threadsafe:6043 plain-reads d->ma_values (_PyDict_HasSplitTable) that dictresize publishes atomically -- and the NEXT LINE 6043->6044 already reads it atomically (_Py_atomic_load_ptr_consume). Fits the Yhg1s shared-container ruling; same class as TSAN-0013, distinct dict instance. Fix: one line. Worth umbrella. Neighbor residual: ma_used at get_index_from_order:674."
+  "assessment": "Real, NEW, clean incomplete-atomic-conversion: dictiter_iternext_threadsafe:6043 plain-reads d->ma_values (_PyDict_HasSplitTable) that dictresize publishes atomically -- and the NEXT LINE 6043->6044 already reads it atomically (_Py_atomic_load_ptr_consume). Fits the Yhg1s shared-container ruling; same class as TSAN-0013, distinct dict instance. Fix: one line. Worth umbrella. Neighbor residual: ma_used at get_index_from_order:674.",
+  "related_issues": [
+    {
+      "num": 148873,
+      "note": "CLOSED as DUPLICATE: 'data race in dictiter_iternext with free-threading' -- reads di->di_dict while written. Same dict-iterator-under-FT class (siblings: #126366, #131113, both closed). Our finding is a narrower incomplete-atomic-conversion (dictiter_iternext_threadsafe:6043 plain-reads ma_values that the very next line :6044 reads atomically), a different field than #148873's di_dict, but the same known area -- likely a residual, lower confidence as a standalone NEW."
+    }
+  ],
+  "notes": " API-SEARCH 2026-07-17: the dict-iterator-under-FT class is KNOWN (#148873 closed-as-dup, #126366, #131113). This is a narrow residual (one plain load next to an atomic one), not a novel class. gh api only."
 }

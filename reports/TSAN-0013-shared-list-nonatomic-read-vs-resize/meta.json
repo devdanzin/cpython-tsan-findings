@@ -37,8 +37,18 @@
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, heads/main:bcf98ddbc40)",
-  "notes": "Formerly SUPPRESSED as an assumed non-bug ('concurrent unsynchronized access to a shared builtin'); un-suppressed after the Yhg1s ruling. Py_SIZE, bytes_join, and marshal (TSAN-0010) are the same class with different reader call sites. Cross-check gh-116738: this is exactly the builtin-thread-safety audit's remit.",
+  "notes": "Formerly SUPPRESSED as an assumed non-bug ('concurrent unsynchronized access to a shared builtin'); un-suppressed after the Yhg1s ruling. Py_SIZE, bytes_join, and marshal (TSAN-0010) are the same class with different reader call sites. Cross-check gh-116738: this is exactly the builtin-thread-safety audit's remit. API-SEARCH 2026-07-17: reframed as the reader-side residual of the KNOWN, CLOSED list-race class #129069 (writes fixed by #131882; TSan suppressions since removed), governed by the merged #142519 documented contract (list reads are atomic item reads). Not a novel 'lists race' discovery -- frame as 'these specific readers skipped the documented atomic load'. Both surfaced only via gh api.",
   "fleet02_notes": [
     "fleet-02: _elementtree XMLParser._setevents aliases the caller's live list via PySequence_Fast and reads it unlocked -- another reader face of this shared-list class (TSAN-0022 folded)"
+  ],
+  "related_issues": [
+    {
+      "num": 129069,
+      "note": "CLOSED/fixed (PR #131882 + #142957/#143019). THE list read/write race class: list_resize's memcpy/memmove writes vs concurrent reads, originally SUPPRESSED in Tools/tsan/suppressions_free_threading.txt. The fix made the WRITE path atomic (and our build's suppressions file is now empty). TSAN-0013 is the READER-side residual: specific readers (Py_SIZE in UNPACK_SEQUENCE, stringlib_bytes_join, marshal w_complex_object) still use PLAIN loads and still race list_resize's atomic publish on current main. Same class, reader half, still live."
+    },
+    {
+      "num": 142518,
+      "note": "Umbrella 'Document guarantees provided when sharing built-in types across threads' (CLOSED, ~28 doc PRs). Its list PR gh-142519 (MERGED) documents that list reads 'use atomic reads of each item' and are lock-free -- i.e. atomic item reads are the INTENDED CONTRACT. A plain (non-atomic) reader that races the atomic publish violates that documented contract, which supports these being real bugs (reader forgot the promised atomic), in an area the maintainers actively care about."
+    }
   ]
 }

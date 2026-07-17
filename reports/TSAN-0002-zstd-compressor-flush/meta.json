@@ -29,12 +29,20 @@
     "inst-01/python/_zstd-warning_threadsanitizer_data_race-tsanNEW"
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
-  "notes": "General 'numeric field mutated by a plain store but published as a Py_T_* member and read lock-free via PyMember_GetOne' class. _zstd is new in 3.14; the member-read relaxed atomics landed with free-threading hardening but the module-side stores were not converted to match. Worth a small upstream PR; low priority given the benign value. Audit other _zstd (and other C-module) mutable Py_T_INT members for the same pattern.",
+  "notes": "General 'numeric field mutated by a plain store but published as a Py_T_* member and read lock-free via PyMember_GetOne' class. _zstd is new in 3.14; the member-read relaxed atomics landed with free-threading hardening but the module-side stores were not converted to match. Worth a small upstream PR; low priority given the benign value. Audit other _zstd (and other C-module) mutable Py_T_INT members for the same pattern. API-SEARCH 2026-07-17: this is a residual of the completed _zstd FT-hardening (#133885/#134289): that work added locks but did NOT make the last_mode store atomic. Frame as an incomplete conversion, not a novel module race. gh api only.",
   "assessment": "real, new (no FT zstd race filed; incomplete atomic conversion)",
   "related_issues": [
     {
       "num": 116738,
       "note": "Modules/_zstd/ is NOT on the gh-116738 audit list (newer 3.14 module); last_mode stores still plain on current main."
+    },
+    {
+      "num": 133885,
+      "note": "'test_zstd failed on ubuntu with free-threading' -> #134289 'Use locks instead of critical sections for _zstd' (MERGED). That is the _zstd FT-hardening this is a residual of."
+    },
+    {
+      "num": 134289,
+      "note": "MERGED. Added locks to _zstd, but left `self->last_mode = mode;` a PLAIN store (it appears as an unchanged context line in the diff). So the member-descriptor relaxed-atomic READ still races the plain WRITE -- TSAN-0002 is the incomplete-conversion residual of this fix, like TSAN-0008 is for lsprof."
     }
   ],
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",

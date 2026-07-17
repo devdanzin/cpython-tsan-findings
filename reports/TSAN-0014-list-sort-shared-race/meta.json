@@ -27,7 +27,17 @@
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, heads/main:bcf98ddbc40)",
-  "notes": "Formerly HELD as a dev-question ('is concurrent list.sort() on a shared list intended to stay crash-safe?'); the Yhg1s ruling answers it (yes, it's a bug). Now REPRODUCED in isolation via shrinkray-minimized repro.py (the earlier sort-vs-sort attempt failed; the real trigger is sort-vs-read). If filed, note the detach-without-lock mechanism explicitly.",
+  "notes": "Formerly HELD as a dev-question ('is concurrent list.sort() on a shared list intended to stay crash-safe?'); the Yhg1s ruling answers it (yes, it's a bug). Now REPRODUCED in isolation via shrinkray-minimized repro.py (the earlier sort-vs-sort attempt failed; the real trigger is sort-vs-read). If filed, note the detach-without-lock mechanism explicitly. API-SEARCH 2026-07-17: adjacent to the CLOSED list-race class #129069 and governed by the merged #142519 contract; sort-vs-read residual, not a novel discovery.",
   "mechanism": "email._header_value_parser.Comment subclasses list; sharing one across threads and hammering its methods runs list.sort() (writer: binarysort rewrites the detached array in place, no critical section) concurrently with readers that iterate the list (list_get_item_ref/_Py_TryXGetRef). sort-vs-READ, not sort-vs-sort -- the reader holds ob_item across slot reads while the in-place sort rewrites, a wider window. (A plain sort-vs-sort loop does NOT reproduce.)",
-  "minimized_with": "shrinkray (interestingness = 'in binarysort' under the TSan build); 32.9 kB -> 867 B / 28 lines"
+  "minimized_with": "shrinkray (interestingness = 'in binarysort' under the TSan build); 32.9 kB -> 867 B / 28 lines",
+  "related_issues": [
+    {
+      "num": 129069,
+      "note": "the list mutation-vs-read race class (CLOSED, fix #131882 covered extend/slice-assign/in-place-mult memcpy writes). Concurrent list.sort()'s in-place binarysort rewrite vs a concurrent reader is an ADJACENT operation that fix did not cover; same class."
+    },
+    {
+      "num": 142519,
+      "note": "MERGED list thread-safety docs: lock-free readers 'may return results affected by concurrent modifications' and use atomic item reads; 'all other operations block using the per-object lock'. list.sort holds the per-object lock, so the defect is that a concurrent lock-free reader's plain load races sort's in-place writes -- the reader-atomicity gap again."
+    }
+  ]
 }
