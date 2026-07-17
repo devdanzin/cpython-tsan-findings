@@ -81,3 +81,16 @@ Modules/_localemodule.c:locale_decode_monetary
 Objects/listobject.c:list_resize \| Objects/structseq.c:structseq_new_impl
 Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release \| Objects/structseq.c:structseq_new_impl
 Python/pystate.c:_PyInterpreterState_GetWhence \| Python/pystate.c:_PyInterpreterState_SetWhence
+
+# fleet-04: another subinterpreter-machinery pairing (out of scope per cpython#143232).
+Modules/posixmodule.c:posixmodule_exec \| Objects/structseq.c:count_members
+
+# Same OpenSSL/libcrypto false positive as the tp_new_wrapper entry above (confirmed:
+# memcmp <- libcrypto.so.3 <- tp_new_wrapper), but here the two stanzas collapse to DIFFERENT
+# generic dispatch frames, so the both-same anchored form does not match it. Anchored to this
+# exact generic pair: a real CPython race would name a real function on at least one side.
+# NOTE: this is the second workaround of the same kind. The proper fix is the pending
+# tsan_dedup.parse_report change to keep the innermost non-interceptor libc/foreign frame, which
+# would give these a specific (libcrypto / tzset_internal) signature instead of a generic collapse
+# -- otherwise every new generic-frame permutation needs its own suppression line.
+^Objects/methodobject.c:cfunction_vectorcall_NOARGS \| Objects/typeobject.c:tp_new_wrapper$

@@ -6,7 +6,8 @@
   "signatures": [
     "Objects/frameobject.c:frame_trace_opcodes_set_impl | Python/sysmodule.c:trace_trampoline",
     "Objects/frameobject.c:frame_trace_opcodes_set_impl | Python/legacy_tracing.c:sys_trace_instruction_func",
-    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_char_relaxed | Python/instrumentation.c:_Py_call_instrumentation_line"
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_char_relaxed | Python/instrumentation.c:_Py_call_instrumentation_line",
+    "Objects/frameobject.c:frame_trace_opcodes_set_impl | Python/legacy_tracing.c:call_trace_func"
   ],
   "sites": [
     "Python/sysmodule.c trace_trampoline:1125 (WRITE Py_XSETREF(frame->f_trace, result); no critical section)",

@@ -1,0 +1,72 @@
+{
+  "id": "TSAN-0036",
+  "slug": "instrumentation-tools-unlocked-read",
+  "title": "sys.monitoring: the eval loop reads a code object's active_monitors.tools[] with no lock while _Py_Instrument replaces the whole struct under LOCK_CODE (no_tools_for_local_event vs force_instrument_lock_held)",
+  "description": "_PyEval_NoToolsForUnwind (Python/ceval.c:2465) -> no_tools_for_local_event (Python/ceval.h) does a plain 1-byte load of code->_co_monitoring->active_monitors.tools[PY_MONITORING_EVENT_PY_UNWIND] from gen_close, holding no lock. Concurrently force_instrument_lock_held (Python/instrumentation.c:1842) replaces that entire 16-byte _Py_LocalMonitors struct with a plain assignment (`code->_co_monitoring->active_monitors = active_events;`), lowered by the compiler to two 8-byte stores, under LOCK_CODE(code) -- the code object's critical section, which excludes other writers but not the lock-free eval-loop reader. The reader loads one byte out of the middle of the word the writer replaces: with _PyCoMonitoringData at ...510, active_monitors sits at ...520, the racing 8-byte store is at ...528 (tools[8..15]) and the racing 1-byte load is at ...52d = tools[13] = PY_MONITORING_EVENT_PY_UNWIND. The registration entry points are correctly stop-the-world (_PyMonitoring_SetEvents asserts ASSERT_WORLD_STOPPED, :2035), but STW only re-instruments CURRENTLY EXECUTING code objects; every other code object is re-instrumented lazily by whichever thread next reaches its RESUME, with the world running and only LOCK_CODE held (generated_cases.c.h:11390). That lazy path is the racing writer.",
+  "signatures": [
+    "Python/ceval.c:_PyEval_NoToolsForUnwind | Python/instrumentation.c:force_instrument_lock_held"
+  ],
+  "sites": [
+    "Python/instrumentation.c force_instrument_lock_held:1842 (WRITE, plain 16-byte struct assignment: `code->_co_monitoring->active_monitors = active_events;`; emitted as two 8-byte stores)",
+    "Python/instrumentation.c instrument_lock_held:1948 (calls force_instrument_lock_held when !is_version_up_to_date; asserts ASSERT_WORLD_STOPPED_OR_LOCKED(code) at :1938)",
+    "Python/instrumentation.c _Py_Instrument:1956 (LOCK_CODE(code) at :1957 -- per-code-object critical section, the ONLY synchronization on the writer side)",
+    "Python/generated_cases.c.h:11390 (the RESUME instrumentation check: acquire-loads _co_instrumentation_version, and on mismatch calls _Py_Instrument with the world RUNNING -- the lazy re-instrumentation path that races)",
+    "Python/ceval.h no_tools_for_local_event (READ, plain 1-byte load: `return data->active_monitors.tools[event] == 0;`; takes NO lock, reads no version)",
+    "Python/ceval.c _PyEval_NoToolsForUnwind:2465 (the caller; inlines no_tools_for_local_event with event = PY_MONITORING_EVENT_PY_UNWIND)",
+    "Objects/genobject.c gen_close:500 (`bool no_unwind_tools = _PyEval_NoToolsForUnwind(_PyThreadState_GET(), frame);` -- gates the frame-clear shortcut at :506-511)",
+    "Include/internal/pycore_instruments.h:80-86 (_Py_LocalMonitors = uint8_t tools[_PY_MONITORING_UNGROUPED_EVENTS], _PY_MONITORING_UNGROUPED_EVENTS = 16)",
+    "Include/internal/pycore_instruments.h:101-105 (_PyCoMonitoringData: local_monitors at offset 0, active_monitors at offset 16)",
+    "Include/cpython/monitoring.h:34 (PY_MONITORING_EVENT_PY_UNWIND = 13 -- the byte at word offset +5)",
+    "Python/instrumentation.c:1926 (FT_ATOMIC_STORE_UINTPTR_RELEASE on _co_instrumentation_version -- the intended publication edge, sequenced AFTER the :1842 write, which this reader never acquires)",
+    "Python/instrumentation.c _PyMonitoring_SetEvents:2035 (ASSERT_WORLD_STOPPED; registration itself is STW -- the gap is the lazy per-code path, not registration)"
+  ],
+  "race_kind": "plain 1-byte load from the lock-free eval loop vs plain 8-byte struct-assignment store under a per-object critical section the reader never takes; incomplete free-threading conversion (bytecode + version word were converted to FT_ATOMIC in this same file, the tools matrix that gates them was not)",
+  "shared_state": "PyCodeObject._co_monitoring->active_monitors.tools[16] (_Py_LocalMonitors; the per-code-object sys.monitoring tools-per-event matrix). Shared because one function's code object is executed by several threads; tools[13] = PY_MONITORING_EVENT_PY_UNWIND is the byte the unwind/generator-close path reads.",
+  "severity": "low (real C11 data race / UB, but value-benign in practice: the 8-byte store is aligned and the reader loads a single byte inside it, so on x86-64/arm64 it observes either the old or the new tool mask, never a mixture; tools[] is a plain uint8_t[16] inside an already-allocated struct and the reader only compares it to 0 -- no OOB, no UAF, no refcount damage). Visible effect is a missed or spurious monitoring event during the (de)registration window: a stale no_unwind_tools==true makes gen_close take the frame-clear shortcut and skip the PY_UNWIND callback; a stale false costs a needless full gen_send_ex2 unwind. Requires a tool to be (de)registering sys.monitoring events (or toggling sys.settrace) WHILE other threads run generators -- i.e. a debugger/coverage tool attaching or detaching in a threaded program; not reachable in a steady-state program that configures monitoring once.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: exit 66 on 6/6 runs, ~0.6s each; identical signature and identical +5 word offset (tools[13]) on every run",
+  "suggested_fix": "Make these bytes atomic, matching the discipline this same file already applies to the instrumented opcodes (FT_ATOMIC_STORE_UINT8_RELAXED at :700/:723/:748/:778/:796/:825). (1) In no_tools_for_local_event (Python/ceval.h) read via FT_ATOMIC_LOAD_UINT8_RELAXED(data->active_monitors.tools[event]) -- ceval.h already includes pycore_pyatomic_ft_wrappers.h; same for no_tools_for_global_event's read of tstate->interp->monitors.tools[event]. (2) In force_instrument_lock_held (:1842) replace the struct assignment with a per-byte loop of FT_ATOMIC_STORE_UINT8_RELAXED over _PY_MONITORING_UNGROUPED_EVENTS, and likewise for the other plain writers of active_monitors.tools[] (:1160). Relaxed ordering suffices -- the existing FT_ATOMIC_STORE_UINTPTR_RELEASE on _co_instrumentation_version (:1926) still provides the publication edge for readers that check the version, and this reader only needs a non-torn, non-UB byte. No-op on the default GIL build. NOTE: the LOCK_CODE -> StopTheWorld upgrade that PR #136994 used for the sibling sites is a poor fit here, because _Py_Instrument is itself called FROM the eval loop and its LOCK_CODE asserts !world_stopped.",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-16",
+  "found_in": "fusil-tsan_fleet_04",
+  "vehicles": [
+    "inst-01/python-2/pdb-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main tip of the build, Jul 4 2026)",
+  "notes": "NEW: no open or closed issue identifies this read site. STRONGEST FRAMING FOR FILING = unfinished business from gh-136870. That issue ('data races in instrumentation when running coverage under TSAN', closed 2025-07-25) is the SAME root pattern in the SAME file, and its fix PR #136994 ('fix data races in instrumentation of bytecode') converted four LOCK_CODE sites to _PyEval_StopTheWorld precisely because LOCK_CODE does not exclude the lock-free eval-loop readers -- an explicit upstream acknowledgement of this exact defect shape. But #136994 only covered the DISABLE paths mutating the per-instruction tool bytes; it never touched active_monitors, and _Py_Instrument's LOCK_CODE (:1957) was left as-is. `git log -L 1842,1842:Python/instrumentation.c` shows line 1842 is UNCHANGED since the original PEP 669 implementation (411b1692811, GH-103083, 2023) -- it predates free-threading and was never revisited. The PY_UNWIND/gen_close pair is just the face the fuzzer surfaced; no_tools_for_local_event is also called for RAISE, RERAISE, PY_THROW, STOP_ITERATION and EXCEPTION_HANDLED (Python/ceval.h, Python/ceval.c:2445-2466), so any of those can present the same race. Vehicle module was pdb, which drives sys.monitoring by default since gh-124533 -- the same real-world workload class (coverage.py) that gh-136870 was filed from. Tooling note: `gh search issues --repo python/cpython <q>` silently returns EMPTY for every query on this box; use `gh api -X GET search/issues -f q='repo:python/cpython ...'` instead. Signature verified against fusil's own engine (fusil/python/tsan_dedup.py parse_report), not derived by hand.",
+  "related": [
+    "TSAN-0030 (sys.monitoring use_tool_id TOCTOU on interp->monitoring_tool_names[]) -- DISTINCT: tool-id registry, not the per-code tools matrix; different writer, different fix (lock/CAS the registry)",
+    "TSAN-0029 (frame f_trace trace-control) -- DISTINCT: per-frame legacy trace state, not per-code instrumentation state; fix is taking the frame's critical section",
+    "gh-136870 / PR #136994 -- closest prior art; same pattern and file, fix stopped one step short of this field"
+  ],
+  "related_issues": [
+    {
+      "num": 136870,
+      "note": "CLOSED 2025-07-25 'data races in instrumentation when running coverage under TSAN'. Same root pattern, same file. Fix PR #136994 converted four LOCK_CODE sites to StopTheWorld for the BYTECODE tool bytes; does NOT cover active_monitors. This finding is the sibling that fix missed -- reference it when filing."
+    },
+    {
+      "num": 131141,
+      "note": "CLOSED 'Data race between _PyMonitoring_RegisterCallback and _Py_call_instrumentation_2args in instrumentation.c'. Different field (interp->monitoring_callables), already fixed."
+    },
+    {
+      "num": 135633,
+      "note": "OPEN 'Potential thread unsafety in test_free_threading.test_monitoring'. Unresolved flakiness (assertion failures, refleaks, 45-min timeouts) in the sys.settrace monitoring tests; root cause never found. Related territory and a plausible symptom sink, not the same identified defect."
+    },
+    {
+      "num": 116775,
+      "note": "CLOSED 'gh-116818: Make sys.settrace, sys.setprofile, and monitoring thread-safe'. The original FT-hardening pass for this subsystem; predates the active_monitors gap."
+    },
+    {
+      "num": 116738,
+      "note": "'Audit all built-in modules for thread safety' -- this falls in its remit; no PR covers this read site."
+    },
+    {
+      "num": 149816,
+      "note": "'22 free-threading race conditions' -- a natural addition to that umbrella, though gh-136870 is the more precise framing."
+    }
+  ],
+  "assessment": "Real, NEW, and unusually well-supported: upstream already fixed this exact defect SHAPE next door (PR #136994, LOCK_CODE -> StopTheWorld, because LOCK_CODE does not exclude eval-loop readers) and simply did not cover active_monitors. The file demonstrably has an atomics discipline (13 FT_ATOMIC uses for the opcodes and the version word, with a deliberate release/acquire pairing on _co_instrumentation_version) that this field was left out of, so it is an incomplete conversion rather than a design disagreement. Severity is genuinely low -- value-benign, worst case a missed/spurious monitoring event -- and it needs concurrent monitoring (de)registration, so it is somewhat contrived, though pdb/coverage attaching to a threaded program is exactly that. Deterministic 6/6 repro. Fix is small and low-risk (atomic byte load/store, no-op on the GIL build)."
+}

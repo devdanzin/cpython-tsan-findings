@@ -1,0 +1,62 @@
+{
+  "id": "TSAN-0035",
+  "slug": "socket-timeout-field",
+  "title": "socket: PySocketSockObject.sock_timeout is read and written with plain non-atomic accesses (gettimeout() vs setblocking()), the one per-socket scalar left behind by the gh-128277 free-threading conversion",
+  "description": "PySocketSockObject.sock_timeout (socketmodule.h:347, a PyTime_t == int64_t) is per-socket mutable state that Python-level methods both write (sock_setblocking:3172, sock_settimeout:3264) and read (sock_gettimeout_impl:3308, sock_getblocking:3194) with plain, non-atomic accesses. Calling s.gettimeout() while another thread calls s.setblocking() on the same socket is a data race on that field. All 15 accesses to sock_timeout in socketmodule.c are plain -- there is no synchronization on this field anywhere. This is an incomplete free-threading conversion: the sibling field sock_fd on the SAME struct got relaxed-atomic accessors get_sock_fd/set_sock_fd (socketmodule.c:567-592) via gh-128277/PR#128304, and the module-global state->defaulttimeout -- a PyTime_t, the exact same type as sock_timeout -- was made atomic via gh-116616/PR#116623. socketmodule.c:1134 even loads defaulttimeout with _Py_atomic_load_int64_relaxed and then plain-stores the result into s->sock_timeout.",
+  "signatures": [
+    "Modules/socketmodule.c:sock_gettimeout_impl | Modules/socketmodule.c:sock_setblocking"
+  ],
+  "sites": [
+    "Modules/socketmodule.c sock_setblocking:3172 (WRITE, plain: s->sock_timeout = _PyTime_FromSeconds(block ? -1 : 0))",
+    "Modules/socketmodule.c sock_gettimeout_impl:3308 (READ, plain: if (s->sock_timeout < 0); also :3312 PyTime_AsSecondsDouble(s->sock_timeout), coalesced by the compiler into the same load)",
+    "Modules/socketmodule.c sock_settimeout:3264 (WRITE, plain: s->sock_timeout = timeout -- identical shape to sock_setblocking)",
+    "Modules/socketmodule.c sock_getblocking:3194 (READ, plain: if (s->sock_timeout))",
+    "Modules/socketmodule.c init_sockobject:1130/1134 (WRITE, plain store of an ATOMICALLY-loaded defaulttimeout -- the asymmetry in one statement)",
+    "Modules/socketmodule.c sock_call:1097 (READ, plain: passes s->sock_timeout as sock_call_ex's timeout arg)",
+    "Modules/socketmodule.c sock_call_ex:1071 (READ, plain: s->sock_timeout > 0 in the EWOULDBLOCK retry test)",
+    "Modules/socketmodule.c IS_SELECTABLE macro:684 (READ, plain: (s)->sock_timeout <= 0)",
+    "Modules/socketmodule.c _socket_socket_sendall:4691/4692 (READ, plain double-read: has_timeout = (s->sock_timeout > 0); timeout = s->sock_timeout -- verified coalesced into one load)",
+    "Modules/socketmodule.c sock_connect internals:3709/3712/3730/3736 (READ, plain)",
+    "Modules/socketmodule.c sock_dup/makefile path:5606 (WRITE, plain)",
+    "Modules/_ssl.c:453, :839, :1024, :2543 (READ, plain: _ssl reads sock->sock_timeout directly and inherits the same race -- this is how the fleet vehicle surfaced it)"
+  ],
+  "race_kind": "plain (non-atomic) read vs plain (non-atomic) write of an aligned int64 field; no atomics and no critical section on either side",
+  "shared_state": "PySocketSockObject.sock_timeout (socketmodule.h:347, PyTime_t == int64_t) -- the per-socket operation timeout; -1s = blocking, 0 = non-blocking, >0 = timeout mode",
+  "severity": "low (benign value race as compiled; no crash, no demonstrated Python-visible misbehaviour). Aligned 8-byte scalar => no tearing; reader sees old-or-new and both are legal values. The apparent gettimeout() TOCTOU (compare at :3308, reload at :3312 => could return an out-of-contract -1.0) is NOT live: disassembly shows the compiler coalesces both source reads into one load (mov 0x38(%rbx),%rdi at +0x111c2, reused unreloaded as the PyTime_AsSecondsDouble arg), and an empirical probe found 0 violations in ~10k racing calls. Same for the _socket_socket_sendall :4691/:4692 double-read (one __tsan_read8, one mov into %r14), so has_timeout and timeout cannot disagree. Still formally C11 UB -- the coalescing is a compiler courtesy, not a guarantee, so the TOCTOU is latent rather than absent.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: 10/10 runs exit 66, typically within a second. One writer + 4 readers on one shared unconnected socket, so the only pair TSan can report is the target read/write pair. Reported .so offsets match the fleet vehicle exactly (_socket...so+0x10f46 for sock_setblocking).",
+  "suggested_fix": "Mirror the existing get_sock_fd/set_sock_fd pattern with a get_sock_timeout/set_sock_timeout accessor pair over _Py_atomic_load_int64_relaxed / _Py_atomic_store_int64_relaxed (already used on a PyTime_t at socketmodule.c:1134), and route all 15 accesses through them. Relaxed ordering suffices -- it matches what state->defaulttimeout already does. Non-free-threaded build unaffected (the FT wrappers are plain accesses there). NOTE: this silences TSan and removes the UB but does NOT close the compound-state hazard (setblocking updates the field at :3172 then the FD O_NONBLOCK flag at :3173 non-atomically); that would need a per-socket critical section around the whole method. Since the compound state could not be triggered in 28,800 attempts, atomics alone are a reasonable first step.",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-16",
+  "found_in": "fusil-tsan_fleet_04",
+  "vehicles": [
+    "inst-03/python-2/ssl-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40)",
+  "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main tip of the build, Jul 4 2026)",
+  "notes": "ISSUE SEARCH VERDICT: NEW -- not filed. Searched socketmodule / sock_timeout / socket free-threading / socket data race / _socket thread / settimeout race / socketmodule thread safety / socketmodule critical section over issues AND prs; nothing covers this field. The decisive context: gh-128277 'Make socket module thread safe' is CLOSED, and it was opened precisely because of TSan warnings from the socket module -- but its three merged PRs (#128286 globals, #128304 sock_fd atomics, #128305 remove critical section from socket.close) do NOT touch sock_timeout (verified: gh pr diff | grep -c sock_timeout == 0 for all three). Likewise gh-116738 'Audit all built-in modules for thread safety' already carries '- [x] Modules/socketmodule.c' -- this finding is evidence that checkbox is premature. gh-116616 converted the module-global defaulttimeout (a PyTime_t) but never its per-socket twin, and does not mention sock_timeout. #149816 '22 free-threading race conditions' does NOT list _socket at all -- no overlap. gh-74667 (getservbyname et al not threadsafe) is a different subject (global netdb calls). File under gh-128277's story and reference it. SEVERITY HONESTY: two plausible impact stories were investigated and BOTH came back negative -- (1) the gettimeout() -1.0 TOCTOU is refuted by disassembly (reads coalesce to one load) and by a 10k-call probe; (2) the field-vs-FD-flag compound-state divergence (which WOULD be a real hang: sock_call_ex gates select() on has_timeout = (timeout > 0) at :971, so sock_timeout==0 on a genuinely-blocking FD skips select() and recv() blocks forever) could not be observed in 28,800 racing pairs with 96 threads oversubscribed on 16 cores, checking getblocking() against the real fcntl(F_GETFL) & O_NONBLOCK. Both are reported as latent/theoretical, not demonstrated. In scope per the RM ruling (Thomas Wouters, 2026-07-15): a shared socket is an entirely ordinary thing to share across threads -- far more conventional than a shared parser -- and a shared builtin object should not data-race.",
+  "related_issues": [
+    {
+      "num": 128277,
+      "note": "'Make socket module thread safe' -- CLOSED, opened because of socket-module TSan warnings. Its 3 merged PRs (#128286/#128304/#128305) never touch sock_timeout. THE direct predecessor: this is the gap it left."
+    },
+    {
+      "num": 116738,
+      "note": "'Audit all built-in modules for thread safety' -- in remit, and already carries '- [x] Modules/socketmodule.c'. This finding shows that checkbox is premature."
+    },
+    {
+      "num": 116616,
+      "note": "'socketmodule.c: use atomics to access defaulttimeout in free-threaded build' -- CLOSED via PR #116623; converted the module-global PyTime_t timeout to relaxed atomics. The per-socket twin sock_timeout was never done. Supplies the exact fix template."
+    },
+    {
+      "num": 149816,
+      "note": "'22 free-threading race conditions' -- checked, does NOT list _socket. No overlap."
+    }
+  ],
+  "assessment": "Real and NEW, but low severity. A genuine C11 data race on a shared builtin object (in scope per the RM ruling), reproducing deterministically 10/10. The value race itself is benign as compiled -- aligned int64, no tearing, both observable values legal -- and I refuted the two impact stories I could construct (gettimeout() -1.0 TOCTOU: refuted by disassembly + probe; field-vs-FD compound divergence: 0/28,800). Worth fixing because it is cheap, it is squarely in the gh-116738 remit, it is the last unconverted per-socket scalar after gh-128277, and it removes UB that today only happens to be harmless. Not urgent. Best filed as a follow-up to the CLOSED gh-128277 rather than as a new crash report.",
+  "related": [
+    "TSAN-0018 (same defect shape: an FT conversion made the writer safe but left a reader/field plain)"
+  ]
+}

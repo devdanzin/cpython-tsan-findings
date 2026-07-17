@@ -19,8 +19,8 @@
   "repro": "repro.py",
   "repro_reliability": "very high: 8/8 SIGABRT (exit 134) under the TSan wrapper on debug-ft-nojit-tsan; 10/10 SIGABRT on plain debug-ft-nojit (no TSan); 8/8 at N=2 threads. Aborts via validate_refcounts before any data-race stanza. Original _asyncio vehicle source.py: 8/8 under TSan, 8/10 plain. On RELEASE (release-ft-nojit): wedges 5/5 at N=4/ITERS=40 (GC spins in mimalloc, whole interpreter stalls); segfault observed at ITERS=150. See release_hang_backtrace.txt.",
   "suggested_fix": "Move PyObject_GC_UnTrack(self) to the top of TaskObj_dealloc, before PyObject_CallFinalizerFromDealloc and unregister_task, matching the standard CPython dealloc discipline (subtype_dealloc untracks first). An object at refcount 0 must not remain on the GC tracked list across a safe point / _PyEval_StopTheWorld. Compatible with the gh-142556 fix that keeps unregister_task after finalization (resurrection re-tracks). Narrower alternative: untrack immediately before unregister_task (closes the dominant stop-the-world window but still runs the finalizer while tracked-at-refcount-0).",
-  "status": "confirmed",
-  "upstream_issue": null,
+  "status": "reported",
+  "upstream_issue": 153809,
   "found_date": "2026-07-16",
   "found_in": "fusil-tsan_fleet_03",
   "vehicles": [
@@ -30,7 +30,7 @@
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40, Jul 4 2026, Clang 21). Also reproduced on debug-ft-nojit (plain free-threaded debug, no TSan) at the same commit.",
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current tip of the build, Jul 4 2026)",
-  "notes": "The current TaskObj_dealloc ordering (finalize -> unregister_task -> untrack) was introduced by commit 42d2bedb875 (gh-142556 fix, PR #142565, Kumar Aditya, Dec 2025) which moved unregister_task after finalization to fix a re-registration UAF. That fix left PyObject_GC_UnTrack last, which is the window this bug exploits. FutureObj_dealloc is the isolating control (0/8). Malformed Task([1,2,3]) is the direct trigger because task_tid is set (line 2334) only after the coroutine check (line 2311) rejects the arg. Falls in gh-116738's _asyncio FT-hardening remit; NOT among gh-149816's 22 (its body has no asyncio/Task). RELEASE-BUILD CHECK 2026-07-16: the finding is NOT Py_DEBUG-only. Without validate_refcounts to catch it early, the refcount-0-but-still-GC-tracked Task corrupts the mimalloc page state that the GC's update_refs heap walk traverses, so gc.collect() spins forever inside _mi_page_free_collect and the entire interpreter wedges (all other threads park on the runtime mutex); a segfault was also observed. An identical-shape control (plain raising __init__, no STW in dealloc) completes in 0.11s, isolating this to the _asyncio.Task dealloc path.",
+  "notes": "The current TaskObj_dealloc ordering (finalize -> unregister_task -> untrack) was introduced by commit 42d2bedb875 (gh-142556 fix, PR #142565, Kumar Aditya, Dec 2025) which moved unregister_task after finalization to fix a re-registration UAF. That fix left PyObject_GC_UnTrack last, which is the window this bug exploits. FutureObj_dealloc is the isolating control (0/8). Malformed Task([1,2,3]) is the direct trigger because task_tid is set (line 2334) only after the coroutine check (line 2311) rejects the arg. Falls in gh-116738's _asyncio FT-hardening remit; NOT among gh-149816's 22 (its body has no asyncio/Task). RELEASE-BUILD CHECK 2026-07-16: the finding is NOT Py_DEBUG-only. Without validate_refcounts to catch it early, the refcount-0-but-still-GC-tracked Task corrupts the mimalloc page state that the GC's update_refs heap walk traverses, so gc.collect() spins forever inside _mi_page_free_collect and the entire interpreter wedges (all other threads park on the runtime mutex); a segfault was also observed. An identical-shape control (plain raising __init__, no STW in dealloc) completes in 0.11s, isolating this to the _asyncio.Task dealloc path. FILED as python/cpython#153809 (2026-07-16). SEARCH-TOOLING CAVEAT: the original NEW verdict was reached with `gh search issues`, which silently UNDER-REPORTS multi-word queries (phrase vs AND semantics) -- e.g. 'monitoring free-threading' returns 0 via gh search but 32 via `gh api -X GET search/issues`. Re-verified with gh api: the verdict stands (TaskObj_dealloc/unregister_task/validate_refcounts all searched; #142975 is the only near-miss and is a different producer).",
   "related_issues": [
     {
       "num": 142556,
@@ -47,6 +47,10 @@
     {
       "num": 149816,
       "note": "OPEN. 22 free-threading race conditions -- body does not list asyncio/Task, so this is NOT one of them."
+    },
+    {
+      "num": 142975,
+      "note": "CLOSED/COMPLETED (fixed Dec 2025). SAME assertion text -- validate_refcounts 'tracked objects must have a reference count > 0' -- but a DIFFERENT producer: gc.freeze()/gc.unfreeze() racing threads, object type name 'method'. validate_refcounts is a GENERIC DETECTOR: any bug that leaves a refcount-0 object GC-tracked trips the identical assertion, so the 'object type name' line is the discriminator (_asyncio.Task here vs method there). NOT a duplicate: different root cause, and this one reproduces on current main whereas #142975 is fixed. Worth stating explicitly on #153809 so it is not closed as a dup on the strength of the shared assertion text."
     }
   ],
   "assessment": "Real, NEW (no existing open/closed issue describes the validate_refcounts refcount-0-while-tracked abort in TaskObj_dealloc). Memory-safety / premature-free class. Fix: untrack before finalizer+unregister_task in TaskObj_dealloc. Same _asyncio FT-hardening remit as gh-116738; fresh consequence of the gh-142556 fix (#142565).",

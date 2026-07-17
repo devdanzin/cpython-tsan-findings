@@ -6,7 +6,8 @@
   "signatures": [
     "Modules/_io/stringio.c:_io_StringIO_seek_impl | Modules/_io/stringio.c:_stringio_readline",
     "Modules/_io/stringio.c:_io_StringIO_close_impl | Modules/_io/stringio.c:stringio_iternext",
-    "Modules/_io/stringio.c:realize | Modules/_io/stringio.c:realize"
+    "Modules/_io/stringio.c:realize | Modules/_io/stringio.c:realize",
+    "Modules/_io/stringio.c:_io_StringIO_read_impl | Modules/_io/stringio.c:_stringio_readline"
   ],
   "sites": [
     "Modules/_io/stringio.c _io_StringIO_seek_impl:543 (write self->pos = pos; @critical_section held)",

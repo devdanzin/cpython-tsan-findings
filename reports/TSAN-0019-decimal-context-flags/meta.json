@@ -9,7 +9,10 @@
     "Modules/_decimal/_decimal.c:dec_addstatus | Modules/_decimal/_decimal.c:dec_as_long",
     "Modules/_decimal/_decimal.c:_decimal_Decimal_to_integral_value_impl | Modules/_decimal/_decimal.c:dec_addstatus",
     "Modules/_decimal/_decimal.c:_decimal_Context_clear_traps_impl | Modules/_decimal/_decimal.c:context_repr",
-    "Modules/_decimal/_decimal.c:_decimal_Context_clear_traps_impl | Modules/_decimal/_decimal.c:context_copy"
+    "Modules/_decimal/_decimal.c:_decimal_Context_clear_traps_impl | Modules/_decimal/_decimal.c:context_copy",
+    "Modules/_decimal/_decimal.c:_decimal_Context_clear_flags_impl | Modules/_decimal/_decimal.c:context_copy",
+    "Modules/_decimal/_decimal.c:context_repr | Modules/_decimal/_decimal.c:dec_addstatus",
+    "Modules/_decimal/_decimal.c:_decimal_Decimal_quantize_impl | Modules/_decimal/_decimal.c:dec_addstatus"
   ],
   "sites": [
     "Modules/_decimal/_decimal.c _decimal_Context_clear_flags_impl:1421:23 (write, size 4: CTX(self)->status = 0)",

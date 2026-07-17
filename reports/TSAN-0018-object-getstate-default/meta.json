@@ -1,11 +1,12 @@
 {
   "id": "TSAN-0018",
   "slug": "object-getstate-default",
-  "title": "dict split-keys: readers of a type's shared dk_nentries use plain loads instead of LOAD_KEYS_NENTRIES (object.__getstate__, dict.clear) racing setattr's atomic bump",
+  "title": "dict: readers of dk_nentries use plain loads instead of the existing LOAD_KEYS_NENTRIES macro, racing the atomic bump (object.__getstate__, dict.clear, and the public PyDict_Next)",
   "description": "object.__getstate__ (object_getstate_default -> _PyObject_IsInstanceDictEmpty) iterates the type's shared-keys with a plain loop bound `i < keys->dk_nentries`; a concurrent setattr adding a NEW attribute name inserts a key and bumps dk_nentries via split_keys_entry_added's _Py_atomic_store_ssize_relaxed. The write was deliberately made atomic (comment: racing with reads) but this reader omitted the matching LOAD_KEYS_NENTRIES atomic load. Pickling/copying an object while another thread does setattr is a data race on the type's shared-keys dk_nentries.",
   "signatures": [
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/typeobject.c:object_getstate_default",
-    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:clear_lock_held"
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:clear_lock_held",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:_PyDict_Next"
   ],
   "sites": [
     "Objects/dictobject.c split_keys_entry_added:248 (WRITE, atomic: _Py_atomic_store_ssize_relaxed(&keys->dk_nentries, keys->dk_nentries + 1))",
@@ -14,9 +15,11 @@
     "Objects/dictobject.c store_instance_attr_lock_held:7396 (setattr on inline-values instance -> insert_split_key)",
     "Objects/dictobject.c _PyObject_IsInstanceDictEmpty:7666 (READ, plain: for i < keys->dk_nentries loop bound; should use LOAD_KEYS_NENTRIES)",
     "Objects/typeobject.c object_getstate_default:7928 (calls _PyObject_IsInstanceDictEmpty)",
-    "Objects/typeobject.c object___getstate___impl:8079 / object_getstate:8054 (object.__getstate__, also reached via pickle reduce_newobj / copy)"
+    "Objects/typeobject.c object___getstate___impl:8079 / object_getstate:8054 (object.__getstate__, also reached via pickle reduce_newobj / copy)",
+    "Objects/dictobject.c _PyDict_Next:3170 (READ, plain: `Py_ssize_t n = mp->ma_keys->dk_nentries` -- the PUBLIC PyDict_Next C-API, reached e.g. from _PyType_GetSubclasses:793)",
+    "Objects/dictobject.c insert_combined_dict:1911 (WRITE, atomic: STORE_KEYS_NENTRIES on a COMBINED dict, via insertdict:2009)"
   ],
-  "race_kind": "shared split-keys dk_nentries: non-atomic reader vs atomic writer (multiple reader call sites)",
+  "race_kind": "dk_nentries: non-atomic readers vs atomic writers (multiple reader call sites; both the split-keys and combined-dict writers are atomic)",
   "shared_state": "PyDictKeysObject.dk_nentries of a type's shared keys (CACHED_KEYS(tp)); grows when setattr first-touches a new attribute name, read as the inline-values iteration bound",
   "severity": "low (value-benign, crash-free; single aligned word, monotonically increasing; per-slot value read already atomic and array is capacity-sized, so no OOB/UAF). Real TSan data race on read-only-looking pickle/copy/__getstate__.",
   "reproduced": true,
@@ -32,7 +35,7 @@
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40)",
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main tip of the build, Jul 4 2026)",
-  "notes": "Writer split_keys_entry_added:248 was deliberately made atomic ('increase before we decrease ... when we're racing with reads'); the reader in _PyObject_IsInstanceDictEmpty forgot the matching atomic load. The same file already uses the correct LOAD_KEYS_NENTRIES macro (dict_equal, :4632). Audit other plain iterations of shared-keys dk_nentries. In scope: __getstate__+setattr is a normal method race, distinct from concurrent __init__/construction (cf. cpython#127192).",
+  "notes": "Writer split_keys_entry_added:248 was deliberately made atomic ('increase before we decrease ... when we're racing with reads'); the reader in _PyObject_IsInstanceDictEmpty forgot the matching atomic load. The same file already uses the correct LOAD_KEYS_NENTRIES macro (dict_equal, :4632). Audit other plain iterations of shared-keys dk_nentries. In scope: __getstate__+setattr is a normal method race, distinct from concurrent __init__/construction (cf. cpython#127192). FLEET-04 (2026-07-16) WIDENED THIS: a third reader face turned up -- _PyDict_Next:3170 plain-reads a COMBINED dict's dk_nentries while insert_combined_dict:1911 bumps it with STORE_KEYS_NENTRIES. That makes the defect broader than the original split-keys framing: the same field is written atomically by BOTH writers and read plainly at several sites, and the correct macro (LOAD_KEYS_NENTRIES, dictobject.c:237) already exists and is used correctly at :4632. The new face matters most because the reader is the PUBLIC PyDict_Next C-API (seen via _PyType_GetSubclasses), so any C extension iterating a shared dict hits it. This is exactly the audit the original entry called for.",
   "related_issues": [
     {
       "num": 116738,
@@ -42,7 +45,8 @@
   "assessment": "Real, NEW (no existing filing). The writer split_keys_entry_added bumps dk_nentries atomically ('when we're racing with reads'); these readers forgot the matching LOAD_KEYS_NENTRIES (the atomic macro already exists at dictobject.c:237 and is used correctly at :4632). Fix: LOAD_KEYS_NENTRIES at the reader sites. Same shared-split-keys FT-hardening remit as gh-116738. Cross-check gh-116738/gh-115999 before filing.",
   "reader_faces": [
     "object_getstate_default (typeobject.c:7666, via pickle/copy)",
-    "clear_lock_held (dictobject.c:3110/3115, via dict.clear on a sibling instance)"
+    "clear_lock_held (dictobject.c:3110/3115, via dict.clear on a sibling instance)",
+    "_PyDict_Next (dictobject.c:3170, the public PyDict_Next C-API; combined-dict dk_nentries vs insert_combined_dict's STORE_KEYS_NENTRIES) -- fleet-04, 5 vehicles"
   ],
   "related": [
     "TSAN-0021 (clear_lock_held face, folded here)"

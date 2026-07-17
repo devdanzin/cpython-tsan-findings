@@ -8,7 +8,8 @@
     "Modules/_io/fileio.c:_io_FileIO___init___impl | Python/fileutils.c:_Py_fstat_noraise",
     "Modules/selectmodule.c:pyepoll_internal_close | Modules/selectmodule.c:select_epoll_fileno_impl",
     "Modules/_io/fileio.c:internal_close | Python/fileutils.c:_Py_read",
-    "Modules/_io/fileio.c:internal_close | Modules/posixmodule.c:posix_do_stat"
+    "Modules/_io/fileio.c:internal_close | Modules/posixmodule.c:posix_do_stat",
+    "Modules/selectmodule.c:pyepoll_internal_close | Modules/selectmodule.c:select_epoll_poll_impl"
   ],
   "reproduced_signatures": [
     "Modules/selectmodule.c:pyepoll_internal_close:1335 | Modules/selectmodule.c:select_epoll_fileno_impl:1477 (epoll face (c), EXACT seeded match)",
@@ -55,5 +56,8 @@
       "note": "kqueue.kqfd close-vs-closed-getter race -- the SIBLING of our epoll(epfd) close-vs-fileno face; #151708 does NOT touch selectmodule, so the epoll face is in-scope and not explicitly covered"
     }
   ],
-  "assessment": "FileIO faces (internal_close/__init__ vs _Py_fstat, self->fd) = ALREADY REPORTED #151707/#151708. EPOLL face (select.epoll close @critical_section but fileno/register/poll not; epfd plain int) is a DISTINCT in-scope finding, sibling of the kqueue #151364 -- not covered by #151708. Audit select.epoll/devpoll alongside #151364."
+  "assessment": "FileIO faces (internal_close/__init__ vs _Py_fstat, self->fd) = ALREADY REPORTED #151707/#151708. EPOLL face (select.epoll close @critical_section but fileno/register/poll not; epfd plain int) is a DISTINCT in-scope finding, sibling of the kqueue #151364 -- not covered by #151708. Audit select.epoll/devpoll alongside #151364.",
+  "fleet04_notes": [
+    "fleet-04: the epoll poll() face finally showed up -- pyepoll_internal_close vs select_epoll_poll_impl. The report already predicted it (close is @critical_section; fileno/register/poll are not), so this is a new face of the same bug, not a new finding."
+  ]
 }

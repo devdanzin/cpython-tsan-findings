@@ -5,7 +5,8 @@
   "description": "monitoring_use_tool_id_impl does an unsynchronized check-then-act on interp->monitoring_tool_names[tool_id] (read :2190, write :2194) with no lock/critical-section/stop-the-world; concurrent sys.monitoring.use_tool_id() is a data race on interpreter-global instrumentation state, and a TOCTOU that also breaks the single-owner invariant and leaks a name reference.",
   "signatures": [
     "Python/instrumentation.c:monitoring_use_tool_id_impl | Python/instrumentation.c:monitoring_use_tool_id_impl",
-    "Python/instrumentation.c:monitoring_get_tool_impl | Python/instrumentation.c:monitoring_use_tool_id_impl"
+    "Python/instrumentation.c:monitoring_get_tool_impl | Python/instrumentation.c:monitoring_use_tool_id_impl",
+    "Python/instrumentation.c:monitoring_free_tool_id_impl | Python/instrumentation.c:monitoring_use_tool_id_impl"
   ],
   "sites": [
     "Python/instrumentation.c monitoring_use_tool_id_impl:2190 (read: if (interp->monitoring_tool_names[tool_id] != NULL))",
