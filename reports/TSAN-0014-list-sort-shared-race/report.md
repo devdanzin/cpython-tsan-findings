@@ -1,15 +1,17 @@
 # Data race: concurrent `list.sort()` of a shared `list` (`binarysort` rewrites the detached array with no critical section)
 
-*`list_sort_impl` takes **no** per-object critical section. It detaches the items array (`ob_item = NULL`, `size = 0`) and — with no `key=` function — sets `lo.keys = saved_ob_item`, i.e. it sorts the list's **own** backing array in place via `binarysort`. Two threads sorting the same shared list (or a reader that grabbed `ob_item` just before the detach) race on the array slots. **Ruled a bug** by Thomas Wouters (Yhg1s, 2026-07-15) as part of the shared-builtin concurrent-access class.*
+*`list_sort_impl` takes **no** per-object critical section. It detaches the items array (`ob_item = NULL`, `size = 0`) and — with no `key=` function — sets `lo.keys = saved_ob_item`, i.e. it sorts the list's **own** backing array in place via `binarysort`. Two threads sorting the same shared list (or a reader that grabbed `ob_item` just before the detach) race on the array slots.*
 
 _AI Disclaimer: this report was drafted by Claude Code; root cause is from current-main source, but the isolated reproducer is not yet solved (see below)._
 
-## Ruling
+## Context
 
-Same ruling as **TSAN-0013**: the "concurrent unsynchronized access to a shared builtin" class was
-confirmed a bug by Thomas Wouters (Yhg1s, CPython RM) on 2026-07-15. This was previously *held* as an
-open dev-question ("is concurrent `list.sort()` on a shared list intended to stay crash-safe?"); the
-ruling answers it — yes, it's a bug.
+This is the mutate-vs-read variant of the shared-`list` thread-safety class whose write side was
+fixed under **gh-129069** and whose contract is documented in **gh-142519** (list reads are lock-free
+atomic item reads; "all other operations block using the per-object lock"). `list.sort()` is one of
+those "other operations", but `list_sort_impl` detaches and rewrites the backing array without taking
+the per-object critical section, so a concurrent lock-free reader races the in-place `binarysort`
+writes — the reader-atomicity gap again, on the sort path.
 
 ## Root cause (from current-main `Objects/listobject.c`)
 

@@ -31,5 +31,6 @@
   "notes": "Issue search found no filing for this: 'handle_thread_shutdown_exception' has no hits at all. Neighbours are different finalization bugs -- #144616 (Py_FinalizeEx / _PyObject_Dump + lost sys.stderr), #122517 (Py_EndInterpreter deadlock), #113148 (crash due to exception in threading._shutdown -- most likely the issue this handler was ADDED to fix), #117657 (make TSan tests pass with the GIL disabled). Low value on its own; catalogued mainly so fleets dedupe it instead of resurfacing it as tsanNEW every run, and because the fix is a one-line move.",
   "related": [
     "TSAN-0033 (also an _asyncio/finalization-adjacent teardown bug, but memory-safety and release-affecting)"
-  ]
+  ],
+  "gist_url": "https://gist.github.com/devdanzin/1e787ea3420c990f4c7728048184e6a4"
 }

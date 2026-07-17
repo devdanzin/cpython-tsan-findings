@@ -156,7 +156,7 @@ This is not a single missed atomic load: the entire `TreeBuilderObject` is treat
 - `Py_CLEAR`/`Py_SETREF`/`Py_DECREF` on `self->data`/`self->last`/`self->this`/`self->last_for_tail` are refcount read-modify-write on shared `PyObject*` fields — concurrent execution can drop a refcount twice or lose a decref → use-after-free / leak.
 - `self->index++` / `self->index--` are non-atomic on a cursor that indexes `self->stack` via `PyList_GET_ITEM(self->stack, self->index)` (`:2872`); a lost update can drive `index` out of range → out-of-bounds list access.
 
-In practice a `TreeBuilder` is conventionally single-threaded (the sink of one parser feeding one document), which lowers real-world priority. But per the free-threading scope ruling (Thomas Wouters/Yhg1s, 2026-07-15) a shared builtin object should not data-race, and `_elementtree` declares `Py_MOD_GIL_NOT_USED`, asserting free-threading safety it does not deliver here.
+In practice a `TreeBuilder` is conventionally single-threaded (the sink of one parser feeding one document), which lowers real-world priority. But `_elementtree` declares `Py_MOD_GIL_NOT_USED`, asserting free-threading safety it does not deliver here — a shared `TreeBuilder` hammered from two threads should not data-race on its own internal state.
 
 ## Real bug vs. expected
 

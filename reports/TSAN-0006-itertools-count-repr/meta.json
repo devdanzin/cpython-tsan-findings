@@ -48,5 +48,6 @@
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",
   "fleet02_notes": [
     "fleet-02 variant: the count_next CAS write-side vs count_repr read (same race, parser picked the atomic frame)"
-  ]
+  ],
+  "gist_url": "https://gist.github.com/devdanzin/db21f2b29ab7572ce6c111b57b3cea5c"
 }

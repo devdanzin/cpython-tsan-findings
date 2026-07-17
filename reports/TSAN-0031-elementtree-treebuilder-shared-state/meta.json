@@ -69,5 +69,6 @@
     "TSAN-0009 (pyexpat don't-share-the-parser -- DISTINCT: this is TreeBuilder-internal, no expat)",
     "TSAN-0013 (shared-list nonatomic read vs resize -- DISTINCT: this is builder struct fields, not a list)",
     "TSAN-0022 (_elementtree _setevents shared-list / parser events fields -- DISTINCT: not the events list/fields)"
-  ]
+  ],
+  "gist_url": "https://gist.github.com/devdanzin/a24f57a318cf6974caa5b04d134d8fbd"
 }

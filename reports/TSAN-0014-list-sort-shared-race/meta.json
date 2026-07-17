@@ -39,5 +39,6 @@
       "num": 142519,
       "note": "MERGED list thread-safety docs: lock-free readers 'may return results affected by concurrent modifications' and use atomic item reads; 'all other operations block using the per-object lock'. list.sort holds the per-object lock, so the defect is that a concurrent lock-free reader's plain load races sort's in-place writes -- the reader-atomicity gap again."
     }
-  ]
+  ],
+  "gist_url": "https://gist.github.com/devdanzin/c1a716a8ad7dff56554f291376eaef66"
 }

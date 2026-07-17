@@ -58,5 +58,6 @@
   "assessment": "Real and NEW, but low severity. A genuine C11 data race on a shared builtin object (in scope per the RM ruling), reproducing deterministically 10/10. The value race itself is benign as compiled -- aligned int64, no tearing, both observable values legal -- and I refuted the two impact stories I could construct (gettimeout() -1.0 TOCTOU: refuted by disassembly + probe; field-vs-FD compound divergence: 0/28,800). Worth fixing because it is cheap, it is squarely in the gh-116738 remit, it is the last unconverted per-socket scalar after gh-128277, and it removes UB that today only happens to be harmless. Not urgent. Best filed as a follow-up to the CLOSED gh-128277 rather than as a new crash report.",
   "related": [
     "TSAN-0018 (same defect shape: an FT conversion made the writer safe but left a reader/field plain)"
-  ]
+  ],
+  "gist_url": "https://gist.github.com/devdanzin/1ee2570ab23f267edce7236d0877a632"
 }

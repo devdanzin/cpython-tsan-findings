@@ -1,16 +1,22 @@
 # Data race: non-atomic list readers race `list_resize`'s atomic publish on a shared `list`
 
-*On a free-threaded build, `list.append`/`pop` grow a list via `list_resize`, which publishes the new `ob_item` pointer and `ob_size` with **atomic** stores. But many list *readers* load those fields with **plain, non-atomic** access — `Py_SIZE` in tuple-unpack, `PyList_GET_ITEM` in `b"".join`, `marshal.dumps`, and others. Two threads doing `read` and `append` on the same shared list therefore race. It is value-benign on aligned hardware, but it is a genuine data race — and **CPython considers it a bug** (Thomas Wouters / Yhg1s, 2026-07-15).*
+*On a free-threaded build, `list.append`/`pop` grow a list via `list_resize`, which publishes the new `ob_item` pointer and `ob_size` with **atomic** stores. But many list *readers* load those fields with **plain, non-atomic** access — `Py_SIZE` in tuple-unpack, `PyList_GET_ITEM` in `b"".join`, `marshal.dumps`, and others. Two threads doing `read` and `append` on the same shared list therefore race. It is value-benign on aligned hardware, but it is a genuine data race on the reader side of a documented-atomic contract.*
 
 _AI Disclaimer: this report was drafted by Claude Code, which created and ran the reproducers; the maintainer reviewed it._
 
-## Ruling
+## This is the reader side of a documented, previously-fixed class
 
-This class was floated to the CPython maintainers by sending `shared_list_race.py` and
-`notes/shared-builtin-concurrent-access.md` verbatim. **Thomas Wouters (Yhg1s, CPython release
-manager) replied: "Yes, that's a bug."** So this is a valid free-threading defect — the non-atomic
-reader should use the same atomic accessor the writer uses — not "don't share it" behaviour. The
-catalog previously *suppressed* this class as an assumed non-bug; that suppression has been removed.
+The write side of this class was fixed under **gh-129069** ("Race in concurrent list mutation and
+item retrieval", PR gh-131882 and follow-ups): `list_resize`/append now publish `ob_item`/`ob_size`
+atomically, and the corresponding entries in `Tools/tsan/suppressions_free_threading.txt` were
+removed. The list thread-safety contract was then written down in **gh-142519** (part of the
+sharing-built-in-types documentation umbrella **gh-142518**), which states that list reads are
+**atomic reads of each item** and are lock-free.
+
+This finding is the residual: several *readers* still use plain `PyList_GET_ITEM` / `Py_SIZE` loads
+rather than the atomic access the writer and the documentation both assume, so they still race
+`list_resize`'s atomic publish on current `main`. The fix is to bring those reader sites in line with
+the documented atomic-read contract.
 
 ## Summary
 
@@ -70,10 +76,10 @@ builtin-container *reader* sites for non-atomic access under free-threading.
 
 ## Notes
 
-Found by `fusil --tsan` (fleet 01). Formerly suppressed as an assumed non-bug; un-suppressed after
-the Yhg1s ruling. The `Py_SIZE`, `bytes_join`, and `marshal` (**TSAN-0010**) faces are the same
+Found by `fusil --tsan`. The `Py_SIZE`, `bytes_join`, and `marshal` (**TSAN-0010**) faces are the same
 underlying defect at different reader sites; **TSAN-0014** (concurrent `list.sort()`) is the closely
-related mutate-vs-mutate variant.
+related mutate-vs-mutate variant. All are the reader-side residual of the gh-129069 / gh-142519 list
+thread-safety work.
 
 ---
 

@@ -162,11 +162,10 @@ today only happens to be harmless. Not worth fixing urgently.
 
 ## Real bug vs. expected
 
-**Real, in scope.** A socket shared across threads is an entirely ordinary pattern — far more
-conventional than a shared parser — and per the RM ruling (Thomas Wouters, 2026-07-15) a shared
-builtin object should not data-race; the fix is atomics or a critical section matching whatever
-the writer uses. Here the module has already made that choice twice (`sock_fd`,
-`state->defaulttimeout`) and simply missed this field.
+**Real, in scope.** A socket shared across threads is an entirely ordinary pattern, and
+`Modules/socketmodule.c` was explicitly hardened for free-threading (gh-128277); the fix is atomics
+or a critical section matching whatever the writer uses. Here the module has already made that choice
+twice on this very struct (`sock_fd`, `state->defaulttimeout`) and simply missed this field.
 
 ## Suggested fix
 
