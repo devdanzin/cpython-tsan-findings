@@ -49,5 +49,6 @@
   "fleet02_notes": [
     "fleet-02 flush|flush vehicle (TSAN-0017) folded in: same last_mode race, dedup artifact"
   ],
-  "gist_url": "https://gist.github.com/devdanzin/0c3bea3347a169cb64f40873a6dcc3bd"
+  "gist_url": "https://gist.github.com/devdanzin/0c3bea3347a169cb64f40873a6dcc3bd",
+  "umbrella_issue": 153852
 }

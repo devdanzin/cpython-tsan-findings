@@ -33,5 +33,6 @@
   "related": [
     "TSAN-0033 (also an _asyncio/finalization-adjacent teardown bug, but memory-safety and release-affecting)"
   ],
-  "gist_url": "https://gist.github.com/devdanzin/1e787ea3420c990f4c7728048184e6a4"
+  "gist_url": "https://gist.github.com/devdanzin/1e787ea3420c990f4c7728048184e6a4",
+  "umbrella_issue": 153852
 }

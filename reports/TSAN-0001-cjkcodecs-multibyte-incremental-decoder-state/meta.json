@@ -38,5 +38,6 @@
   ],
   "assessment": "real, new (distinct from #152767)",
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",
-  "gist_url": "https://gist.github.com/devdanzin/ed0c939eb845d23ca67b464d3e53ff56"
+  "gist_url": "https://gist.github.com/devdanzin/ed0c939eb845d23ca67b464d3e53ff56",
+  "umbrella_issue": 153852
 }

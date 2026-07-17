@@ -36,5 +36,6 @@
   ],
   "assessment": "Real, low-severity, NEW field (module-global static int should_auto_add_history, plain write). Distinct from #153291 (pointer getters) but same readline FT-migration class. Fix: FT_ATOMIC. Fold into the readline cleanup rather than file standalone.",
   "confirmed_unfixed_on": "local checkout /home/danzin/projects/cpython @ 4f3be1b5777 (newer than the build) -- should_auto_add_history still a plain `static int` (readline.c:825), written unsynchronized at :843 in a non-@critical_section set_auto_history, read unsynchronized at :1591",
-  "gist_url": "https://gist.github.com/devdanzin/f0b4f8859da46e985f23aa9cadaaa4c9"
+  "gist_url": "https://gist.github.com/devdanzin/f0b4f8859da46e985f23aa9cadaaa4c9",
+  "umbrella_issue": 153852
 }

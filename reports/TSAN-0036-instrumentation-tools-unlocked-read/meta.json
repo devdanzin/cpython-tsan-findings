@@ -69,5 +69,6 @@
     }
   ],
   "assessment": "Real, NEW, and unusually well-supported: upstream already fixed this exact defect SHAPE next door (PR #136994, LOCK_CODE -> StopTheWorld, because LOCK_CODE does not exclude eval-loop readers) and simply did not cover active_monitors. The file demonstrably has an atomics discipline (13 FT_ATOMIC uses for the opcodes and the version word, with a deliberate release/acquire pairing on _co_instrumentation_version) that this field was left out of, so it is an incomplete conversion rather than a design disagreement. Severity is genuinely low -- value-benign, worst case a missed/spurious monitoring event -- and it needs concurrent monitoring (de)registration, so it is somewhat contrived, though pdb/coverage attaching to a threaded program is exactly that. Deterministic 6/6 repro. Fix is small and low-risk (atomic byte load/store, no-op on the GIL build).",
-  "gist_url": "https://gist.github.com/devdanzin/91b26da5b484234d0ad93027945bcdda"
+  "gist_url": "https://gist.github.com/devdanzin/91b26da5b484234d0ad93027945bcdda",
+  "umbrella_issue": 153852
 }

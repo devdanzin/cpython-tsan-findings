@@ -4,6 +4,8 @@
 
 _AI Disclaimer: this report was drafted by Claude Code, which also created and ran the reproducer; the maintainer reviewed and edited it._
 
+> **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
+
 ## Summary
 
 On the free-threaded build, instances of an ordinary class store their attributes in *inline values* backed by the type's **shared keys** object (`CACHED_KEYS(tp)`). Two unsynchronized accesses to that shared keys object's `dk_nentries` field race:

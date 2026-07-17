@@ -48,5 +48,6 @@
     "tsan_report.txt",
     "meta.json"
   ],
-  "gist_url": "https://gist.github.com/devdanzin/0b13838fd6089e73a3f063ed8f68e733"
+  "gist_url": "https://gist.github.com/devdanzin/0b13838fd6089e73a3f063ed8f68e733",
+  "umbrella_issue": 153852
 }

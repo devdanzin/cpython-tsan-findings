@@ -4,6 +4,8 @@
 
 _AI Disclaimer: this report was drafted by Claude Code, which also created and ran the reproducer; the maintainer reviewed and edited it._
 
+> **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
+
 ## Summary
 
 Each `PyFrameObject` carries per-frame legacy-tracing state: `PyObject *f_trace` (the frame's local trace function) plus the `f_trace_lines` / `f_trace_opcodes` flags (`Include/internal/pycore_frame.h`). Under `sys.settrace`, whenever a traced event fires in a frame, the interpreter calls `trace_trampoline`, which — if the trace callback returns a non-`None` value — stores that value back into the frame:

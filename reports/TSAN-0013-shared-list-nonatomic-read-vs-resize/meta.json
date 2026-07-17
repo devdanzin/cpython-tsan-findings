@@ -51,5 +51,6 @@
       "note": "Umbrella 'Document guarantees provided when sharing built-in types across threads' (CLOSED, ~28 doc PRs). Its list PR gh-142519 (MERGED) documents that list reads 'use atomic reads of each item' and are lock-free -- i.e. atomic item reads are the INTENDED CONTRACT. A plain (non-atomic) reader that races the atomic publish violates that documented contract, which supports these being real bugs (reader forgot the promised atomic), in an area the maintainers actively care about."
     }
   ],
-  "gist_url": "https://gist.github.com/devdanzin/6bd1bd3936235547e9c0abd8eb3cca18"
+  "gist_url": "https://gist.github.com/devdanzin/6bd1bd3936235547e9c0abd8eb3cca18",
+  "umbrella_issue": 153852
 }

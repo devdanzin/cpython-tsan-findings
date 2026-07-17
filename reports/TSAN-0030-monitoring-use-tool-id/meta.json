@@ -39,5 +39,6 @@
   "related": [
     "TSAN-0011 (interpreter-global instrumentation state, unsynchronized -- same class)"
   ],
-  "gist_url": "https://gist.github.com/devdanzin/e6e667ea59d98e8a3761e3915bc58ff9"
+  "gist_url": "https://gist.github.com/devdanzin/e6e667ea59d98e8a3761e3915bc58ff9",
+  "umbrella_issue": 153852
 }

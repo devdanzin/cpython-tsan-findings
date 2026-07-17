@@ -4,6 +4,8 @@
 
 _AI Disclaimer: this report was drafted by Claude Code, which also created and ran the reproducer; the maintainer reviewed and edited it._
 
+> **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
+
 ## Summary
 
 `Modules/_zstd/compressor.c` keeps a per-compressor `int last_mode` (the last compression end-directive used). It is mutated by `compress()` and `flush()` as a plain store, but only ever *written* under `self->lock`:

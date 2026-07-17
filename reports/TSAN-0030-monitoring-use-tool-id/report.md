@@ -4,6 +4,8 @@
 
 _AI Disclaimer: this report was drafted by Claude Code, which also created and ran the reproducer; the maintainer reviewed and edited it._
 
+> **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
+
 ## Summary
 
 `sys.monitoring` keeps a per-interpreter table of registered tool names, `interp->monitoring_tool_names[PY_MONITORING_TOOL_IDS]` (`Include/internal/pycore_interp_structs.h:1039`). `monitoring.use_tool_id(tool_id, name)` claims a free slot with a check-then-act that has no synchronization:

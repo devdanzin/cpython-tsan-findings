@@ -55,5 +55,6 @@
   "related": [
     "TSAN-0021 (clear_lock_held face, folded here)"
   ],
-  "gist_url": "https://gist.github.com/devdanzin/6b99ef6dce08ac64d8d1d379308a8f86"
+  "gist_url": "https://gist.github.com/devdanzin/6b99ef6dce08ac64d8d1d379308a8f86",
+  "umbrella_issue": 153852
 }

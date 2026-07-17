@@ -39,5 +39,6 @@
   ],
   "assessment": "Real, NEW, LOW-PRIORITY design-edge: trace_trampoline writes frame->f_trace via Py_XSETREF unlocked while the Python-level f_trace/f_trace_opcodes accessors are @critical_section. Only bites when deliberately mutating another thread's currently-executing frame (via sys._current_frames()); normal debuggers touch own-thread frames only. Refcount-UAF potential but low reach. Umbrella-candidate at most.",
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (Jul 2026)",
-  "gist_url": "https://gist.github.com/devdanzin/987cdee793b09c28d9a337c6f91647a7"
+  "gist_url": "https://gist.github.com/devdanzin/987cdee793b09c28d9a337c6f91647a7",
+  "umbrella_issue": 153852
 }

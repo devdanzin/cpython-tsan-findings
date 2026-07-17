@@ -49,5 +49,6 @@
   "fleet02_notes": [
     "fleet-02 variant: the count_next CAS write-side vs count_repr read (same race, parser picked the atomic frame)"
   ],
-  "gist_url": "https://gist.github.com/devdanzin/db21f2b29ab7572ce6c111b57b3cea5c"
+  "gist_url": "https://gist.github.com/devdanzin/db21f2b29ab7572ce6c111b57b3cea5c",
+  "umbrella_issue": 153852
 }

@@ -4,6 +4,8 @@
 
 _AI Disclaimer: this report was drafted by Claude Code, which created and ran the reproducers; the maintainer reviewed it._
 
+> **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
+
 ## This is the reader side of a documented, previously-fixed class
 
 The write side of this class was fixed under **gh-129069** ("Race in concurrent list mutation and

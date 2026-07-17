@@ -38,5 +38,6 @@
   ],
   "assessment": "real, new (distinct from the decimal context.status race)",
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main, Jul 2026)",
-  "gist_url": "https://gist.github.com/devdanzin/4ece3c7d20810f1ad33e2b204ccf33e4"
+  "gist_url": "https://gist.github.com/devdanzin/4ece3c7d20810f1ad33e2b204ccf33e4",
+  "umbrella_issue": 153852
 }

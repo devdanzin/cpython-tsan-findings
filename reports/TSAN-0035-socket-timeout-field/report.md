@@ -4,6 +4,8 @@ TSAN-0035 · found by `fusil --tsan` (fleet-04, `ssl` module vehicle) · CPython
 
 _AI Disclaimer: this report was drafted by Claude Code, which also created and ran the reproducer; the maintainer reviewed and edited it._
 
+> **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
+
 ## Summary
 
 `PySocketSockObject.sock_timeout` (`Modules/socketmodule.h:347`, a `PyTime_t` = `int64_t`) is

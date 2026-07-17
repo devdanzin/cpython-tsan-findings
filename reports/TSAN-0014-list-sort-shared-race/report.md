@@ -4,6 +4,8 @@
 
 _AI Disclaimer: this report was drafted by Claude Code; root cause is from current-main source, but the isolated reproducer is not yet solved (see below)._
 
+> **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
+
 ## Context
 
 This is the mutate-vs-read variant of the shared-`list` thread-safety class whose write side was

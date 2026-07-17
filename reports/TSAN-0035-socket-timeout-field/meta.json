@@ -59,5 +59,6 @@
   "related": [
     "TSAN-0018 (same defect shape: an FT conversion made the writer safe but left a reader/field plain)"
   ],
-  "gist_url": "https://gist.github.com/devdanzin/1ee2570ab23f267edce7236d0877a632"
+  "gist_url": "https://gist.github.com/devdanzin/1ee2570ab23f267edce7236d0877a632",
+  "umbrella_issue": 153852
 }

@@ -4,6 +4,8 @@
 
 _AI Disclaimer: this report was drafted by Claude Code, which also created and ran the reproducer; the maintainer reviewed and edited it._
 
+> **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
+
 ## Summary
 
 `itertools.count()` keeps its fast-mode counter in the plain C field `countobject.cnt` (`Py_ssize_t`). The free-threaded `count_next` was hardened to advance it with a lock-free CAS loop over relaxed atomics:
