@@ -26,7 +26,7 @@ Found with [fusil](https://github.com/devdanzin/fusil)'s `--tsan` mode (fusil or
 
 - Found on `main` (3.16.0a0) on a `--disable-gil --with-thread-sanitizer` debug build. These are concurrency bugs, not tied to an exact revision.
 - Each gist ships a minimal stdlib-only `TSAN-NNNN-repro.py`. Run it on a free-threaded TSan build with `PYTHON_GIL=0`; a real race exits non-zero and prints `WARNING: ThreadSanitizer: data race`. (TSan needs ASLR reduced — e.g. `setarch -R` — and an unlimited `RLIMIT_AS`, or it runs degraded.)
-- Most are **value-benign on aligned hardware** but are genuine C-level data races (formally UB, and TSan-reported); a few carry a latent UAF/leak/crash, called out per report. One (**TSAN-0014**) is root-caused from source but not reproduced in isolation — noted as such.
+- Most are **value-benign on aligned hardware** but are genuine C-level data races (formally UB, and TSan-reported); a few carry a latent UAF/leak/crash, called out per report. **All 15 reproduce in isolation** with a stdlib-only script (some probabilistically — loop them).
 
 ### New free-threading defects (9)
 

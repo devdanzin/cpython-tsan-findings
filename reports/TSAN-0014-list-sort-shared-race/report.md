@@ -2,7 +2,7 @@
 
 *`list_sort_impl` takes **no** per-object critical section. It detaches the items array (`ob_item = NULL`, `size = 0`) and — with no `key=` function — sets `lo.keys = saved_ob_item`, i.e. it sorts the list's **own** backing array in place via `binarysort`. Two threads sorting the same shared list (or a reader that grabbed `ob_item` just before the detach) race on the array slots.*
 
-_AI Disclaimer: this report was drafted by Claude Code; root cause is from current-main source, but the isolated reproducer is not yet solved (see below)._
+_AI Disclaimer: this report was drafted by Claude Code, which created and ran the reproducer; the maintainer reviewed it._
 
 > **Tracked in the umbrella issue [python/cpython#153852](https://github.com/python/cpython/issues/153852)** — one of a batch of free-threading data races found with `fusil --tsan`.
 
@@ -38,21 +38,53 @@ just before the detach reads slots as `binarysort` reorders them. The observed i
 crash-safe (the slots hold valid objects, just permuted), but it is an unsynchronized mutation of a
 shared list's storage — unlike every other `list` mutator, which takes the object's critical section.
 
-## Reproduction — solved by shrinkray (sort-vs-**read**, not sort-vs-sort)
+## Reproducer — clean plain-`list` synthetic (`repro.py`, 8/8)
 
-**Reproduced in isolation** (`repro.py`). The key was realizing it is a *sort-vs-read* race, not
-sort-vs-sort: a plain multi-thread `list.sort()` loop never triggers it (all sorters detach and
-rarely overlap), but a `sort()` racing a concurrent *reader* does — the reader loads `ob_item` and
-reads slots via `list_get_item_ref`/`_Py_TryXGetRef` while the in-place sort rewrites the same
-array, a much wider window.
+It is a *sort-vs-read* race, not sort-vs-sort: a plain multi-thread `list.sort()` loop never trips it
+(the sorters detach and rarely overlap), but a `sort()` racing a concurrent *reader* does — the
+reader loads `ob_item` and reads slots via the lock-free `_PyList_GetItemRef*` / `_Py_TryXGetRef`
+while the in-place sort rewrites the same array, a much wider window.
 
-The fleet vehicle (`inst-02/.../email__header_value_parser-…`) was minimized with **shrinkray**
-(994 lines / 32.9 kB → 28 lines) with the interestingness predicate "TSan reports `in binarysort`".
-It isolated the mechanism cleanly: **`email._header_value_parser.Comment` subclasses `list`**, so
-sharing one instance across threads and hammering its methods runs `list.sort()` (writer)
-concurrently with method/iteration reads of the same list (reader). The minimized reproducer trips
-the race in **~15–30 % of single runs** (run it a few times / in a loop); the un-minimized vehicle
-reproduces 100 % but is 994 lines. Confirmed report: `tsan_report_isolated.txt`.
+The one subtlety in isolating it is that `list.sort()` only does real `binarysort` work on *unsorted*
+input, so the list must be re-scrambled between sorts — but a re-scramble is itself a write that
+would race the readers (the TSAN-0013 class), and `halt_on_error=1` would stop on *that* instead. A
+`threading.Barrier` fixes it: the re-scramble happens while the readers are **parked**, and only the
+`sort()` overlaps the readers in the active phase, so the reported race is unambiguously
+`binarysort`-vs-read:
+
+```python
+import sys, threading
+assert not sys._is_gil_enabled(), "need --disable-gil + PYTHON_GIL=0"
+
+SZ, ROUNDS, NR = 2000, 1500, 4
+SCRAMBLED = sorted(range(SZ), key=lambda x: (x * 2654435761) & 0xFFFFFFFF)  # fixed shuffle, no `random`
+L = list(SCRAMBLED)
+enter, leave = threading.Barrier(NR + 1), threading.Barrier(NR + 1)
+
+def reader():
+    for _ in range(ROUNDS):
+        enter.wait()
+        for _x in L:          # _PyList_GetItemRef* -> _Py_TryXGetRef(&ob_item[i])
+            pass
+        leave.wait()
+
+def main_sorter():
+    for _ in range(ROUNDS):
+        L[:] = SCRAMBLED      # re-scramble while readers are parked at enter (no reader active)
+        enter.wait()          # release readers
+        L.sort()              # in-place binarysort, racing the readers
+        leave.wait()
+
+ts = [threading.Thread(target=reader) for _ in range(NR)]
+for t in ts: t.start()
+main_sorter()
+for t in ts: t.join()
+```
+
+**Exit 66 on 8/8 runs, deterministic** (`tsan_report.txt`): `binarysort` (`listobject.c:1918`, write)
+vs `_PyList_GetItemRefNoLock` → `_Py_atomic_load_ptr` (the iterator's lock-free slot read). Plain
+`list`, no subclass, no `key=`. This supersedes the original wild find — a shrinkray-minimized
+`email._header_value_parser.Comment` (a `list` subclass) vehicle that reproduced at ~15–30 %/run.
 
 ## Suggested fix
 
