@@ -1,0 +1,31 @@
+{
+  "id": "TSAN-0037",
+  "slug": "bytes-iterator-shared-race",
+  "title": "bytes: striter_next advances a shared bytes iterator's it_index non-atomically (Objects/bytesobject.c:3446 read vs :3448 write) and double-DECREFs it_seq on exhaustion -- the bytes analog of the str-iterator race cpython#153928",
+  "description": "The bytes iterator (bytesiterobject / striter_next in Objects/bytesobject.c) keeps its cursor in a plain struct field it->it_index and its source in it->it_seq, with no synchronization. When a single bytes iterator is shared across threads, striter_next races two ways: (1) NON-ATOMIC it_index -- it reads it->it_index at the bounds check `if (it->it_index < PyBytes_GET_SIZE(seq))` (:3446) and then reads+increments it in `seq->ob_sval[it->it_index++]` (:3448), so a sibling thread can push it_index past the end between the check and the read -> out-of-bounds read of ob_sval (returns a byte not in the source, or past the buffer); (2) it_seq DOUBLE-DECREF on exhaustion -- two threads that both fall through to `it->it_seq = NULL; Py_DECREF(seq);` DECREF the bytes object twice -> refcount underflow / use-after-free. This is structurally identical to the str-iterator race unicode_ascii_iter_next (cpython#153928, johng): same it_index-non-atomic + it_seq-double-DECREF pair, in the bytes iterator instead of the str iterator. Surfaced by fusil's --tsan shared-iterator op (PR #211, op h: iter(b'A'*4096) shared by reference across workers).",
+  "signatures": [
+    "Objects/bytesobject.c:striter_next | Objects/bytesobject.c:striter_next"
+  ],
+  "sites": [
+    "Objects/bytesobject.c striter_next:3446 (READ it->it_index: `if (it->it_index < PyBytes_GET_SIZE(seq))` bounds check)",
+    "Objects/bytesobject.c striter_next:3448 (READ+WRITE it->it_index: `seq->ob_sval[it->it_index++]` -- byte fetch + non-atomic post-increment; the OOB read when it_index has been advanced past the end by a sibling)",
+    "Objects/bytesobject.c striter_next:3451-3452 (exhaustion branch `it->it_seq = NULL; Py_DECREF(seq);` -- two threads both reach it -> double-DECREF of the shared bytes object)"
+  ],
+  "race_kind": "shared-iterator state: non-atomic cursor read/write (it_index) on a single shared bytes iterator -> data race + out-of-bounds read; plus an unsynchronized it_seq = NULL / Py_DECREF exhaustion path -> double-DECREF / use-after-free. Same class as cpython#153928 (str) -- a builtin sequence iterator's per-iteration state is mutated with no per-object critical section.",
+  "shared_state": "bytesiterobject fields on a single shared bytes iterator: it_index (Py_ssize_t cursor) and it_seq (the source PyBytesObject*)",
+  "severity": "moderate-to-high (memory-unsafe: the it_index race is an out-of-bounds read of ob_sval, and the it_seq double-DECREF is a refcount underflow / UAF). Sharing one iterator across threads is unusual in practice, which lowers real-world priority; but bytes declares no per-object locking and a shared builtin should not data-race / read OOB (Yhg1s ruling on the shared-builtin class). Only the it_index (plain-memory) race is observed by TSan directly -- it halts before the exhaustion path; the double-DECREF is by code inspection, matching the confirmed str-iterator behaviour in #153928.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: exit 66 (TSan data race) within ~1s; 8 threads draining one shared `iter(b'A'*2000)` under a barrier, 4000 rounds. SUMMARY names striter_next:3446 (read) vs :3448 (write). Matches all 196 fleet-06 vehicles.",
+  "suggested_fix": "Same as the str iterator (#153928): make it_index an atomic load/store (or take a per-iterator critical section over the whole striter_next body), and make the exhaustion path release it_seq exactly once via an atomic exchange -- `PyObject *seq = _Py_atomic_exchange_ptr(&it->it_seq, NULL); if (seq) Py_DECREF(seq);`. The list/tuple/range iterators share this shape and likely want the same treatment.",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "found_date": "2026-07-18",
+  "found_in": "fusil-tsan_fleet_06",
+  "vehicles": 196,
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
+  "related_issues": ["cpython#153928"],
+  "related": "cpython#153928 is the str-iterator (unicode_ascii_iter_next) form of the identical bug -- reproduced + commented by us. TSAN-0037 is the bytes-iterator form. The dict-iterator shared-cursor face appeared in the same fleet (folded to TSAN-0026, dictiter_iternext_threadsafe machinery).",
+  "notes": "First find of the fusil --tsan shared-iterator op-mix class (PR #211). The str iterator did NOT trip in fleet-06 (0 dirs) -- bytes dominated at 196/223. Candidate to add to the #153928 comment thread as 'the same race exists in bytesobject.c:striter_next' rather than a separate filing, since it is the same defect class the maintainers are already looking at."
+}

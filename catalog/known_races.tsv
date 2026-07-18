@@ -82,6 +82,7 @@ TSAN-0024	Modules/selectmodule.c:pyepoll_internal_close | Modules/selectmodule.c
 TSAN-0024	Modules/selectmodule.c:pyepoll_internal_close | Modules/selectmodule.c:select_epoll_poll_impl
 TSAN-0024	Modules/selectmodule.c:select_epoll_unregister_impl | Modules/socketmodule.c:_socket_socket_close_impl
 TSAN-0025	Modules/readline.c:readline_set_auto_history_impl | Modules/readline.c:readline_set_auto_history_impl
+TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ssize_relaxed | Objects/dictobject.c:dictiter_iternextitem_lock_held
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:dictiter_iternext_threadsafe
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:get_index_from_order
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:get_index_from_order
@@ -116,3 +117,4 @@ TSAN-0034	Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate
 TSAN-0034	Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate.c:tstate_delete_common
 TSAN-0035	Modules/socketmodule.c:sock_gettimeout_impl | Modules/socketmodule.c:sock_setblocking
 TSAN-0036	Python/ceval.c:_PyEval_NoToolsForUnwind | Python/instrumentation.c:force_instrument_lock_held
+TSAN-0037	Objects/bytesobject.c:striter_next | Objects/bytesobject.c:striter_next

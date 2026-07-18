@@ -6,7 +6,8 @@
   "signatures": [
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:dictiter_iternext_threadsafe",
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:get_index_from_order",
-    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:get_index_from_order"
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:get_index_from_order",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ssize_relaxed | Objects/dictobject.c:dictiter_iternextitem_lock_held"
   ],
   "sites": [
     "Objects/dictobject.c dictiter_iternext_threadsafe:6043 (PLAIN read of ma_values via _PyDict_HasSplitTable(d) == ((d)->ma_values != NULL))",
@@ -43,5 +44,5 @@
       "note": "CLOSED as DUPLICATE: 'data race in dictiter_iternext with free-threading' -- reads di->di_dict while written. Same dict-iterator-under-FT class (siblings: #126366, #131113, both closed). Our finding is a narrower incomplete-atomic-conversion (dictiter_iternext_threadsafe:6043 plain-reads ma_values that the very next line :6044 reads atomically), a different field than #148873's di_dict, but the same known area -- likely a residual, lower confidence as a standalone NEW."
     }
   ],
-  "notes": " API-SEARCH 2026-07-17: the dict-iterator-under-FT class is KNOWN (#148873 closed-as-dup, #126366, #131113). This is a narrow residual (one plain load next to an atomic one), not a novel class. gh api only."
+  "notes": " API-SEARCH 2026-07-17: the dict-iterator-under-FT class is KNOWN (#148873 closed-as-dup, #126366, #131113). This is a narrow residual (one plain load next to an atomic one), not a novel class. gh api only. Fleet-06 (2026-07-18) added the shared-cursor face `_Py_atomic_load_ssize_relaxed | dictiter_iternextitem_lock_held`: two threads advancing ONE shared dict iterator race in the iternext_threadsafe machinery (lock-free size read at :6082 vs the lock_held path at :6017) -- the dict analog of the bytes/str shared-iterator cursor race (TSAN-0037 / cpython#153928), distinct mechanism from this entry's ma_values face but same dictiter_iternext_threadsafe home."
 }
