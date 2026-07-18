@@ -6,6 +6,10 @@ TSAN-0004	Modules/cjkcodecs/_codecs_cn.c:hz_decode_reset | Objects/longobject.c:
 TSAN-0004	Modules/cjkcodecs/_codecs_iso2022.c:iso2022_decode_reset | Objects/longobject.c:_PyLong_FromByteArray
 TSAN-0005	Modules/_decimal/_decimal.c:dec_hash | Modules/_decimal/_decimal.c:dec_hash
 TSAN-0006	Include/cpython/pyatomic_gcc.h:_Py_atomic_compare_exchange_ssize | Modules/itertoolsmodule.c:count_repr
+TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawAlloc
+TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawFree
+TSAN-0006	Modules/itertoolsmodule.c:count_nextlong | Modules/itertoolsmodule.c:count_repr
+TSAN-0006	Objects/longobject.c:long_to_decimal_string_internal | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0007	Modules/_io/stringio.c:_io_StringIO_close_impl | Modules/_io/stringio.c:stringio_iternext
 TSAN-0007	Modules/_io/stringio.c:_io_StringIO_read_impl | Modules/_io/stringio.c:_stringio_readline
 TSAN-0007	Modules/_io/stringio.c:_io_StringIO_seek_impl | Modules/_io/stringio.c:_stringio_readline
@@ -88,6 +92,7 @@ TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:get_index_from_order
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:dictiter_iternextitem_lock_held
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:get_index_from_order
+TSAN-0026	Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_len
 TSAN-0027	Objects/typeobject.c:add_subclass | Objects/typeobject.c:clear_tp_subclasses
 TSAN-0028	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ullong_relaxed | Modules/_threadmodule.c:rlock_repr
 TSAN-0028	Modules/_threadmodule.c:_thread_RLock__release_save_impl | Modules/_threadmodule.c:rlock_repr
@@ -119,4 +124,9 @@ TSAN-0034	Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate
 TSAN-0034	Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate.c:tstate_delete_common
 TSAN-0035	Modules/socketmodule.c:sock_gettimeout_impl | Modules/socketmodule.c:sock_setblocking
 TSAN-0036	Python/ceval.c:_PyEval_NoToolsForUnwind | Python/instrumentation.c:force_instrument_lock_held
+TSAN-0037	Objects/bytesobject.c:striter_len | Objects/bytesobject.c:striter_next
 TSAN-0037	Objects/bytesobject.c:striter_next | Objects/bytesobject.c:striter_next
+TSAN-0038	Objects/unicodeobject.c:unicode_ascii_iter_next | Objects/unicodeobject.c:unicode_ascii_iter_next
+TSAN-0038	Objects/unicodeobject.c:unicode_ascii_iter_next | Objects/unicodeobject.c:unicodeiter_len
+TSAN-0039	Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_iternext
+TSAN-0039	Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_len

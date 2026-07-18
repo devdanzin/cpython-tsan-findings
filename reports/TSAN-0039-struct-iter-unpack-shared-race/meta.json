@@ -1,0 +1,31 @@
+{
+  "id": "TSAN-0039",
+  "slug": "struct-iter-unpack-shared-race",
+  "title": "struct: unpackiter_iternext advances a shared Struct.iter_unpack iterator's index non-atomically (Modules/_struct.c:2278 write vs unpackiter_len:2249 read) = cpython#154013",
+  "description": "The struct unpack-iterator (unpackiterobject in Modules/_struct.c, returned by Struct.iter_unpack) keeps its byte offset / index in a plain field with no synchronization. When a single unpack iterator is shared across threads, unpackiter_iternext advances that index (:2278) with no atomicity while unpackiter_len (the __length_hint__ slot, :2249) plainly reads it -> data race on the cursor. This is the struct form of the same builtin-iterator shared-cursor defect as the str (cpython#153928 / TSAN-0038) and bytes (TSAN-0037) iterators, filed upstream as cpython#154013. Surfaced by fusil's --tsan shared-iterator op (PR #211/#213): op h shares one struct.Struct('i').iter_unpack(bytes(4*4096)) by reference, some workers advancing via next() and some reading its cursor via operator.length_hint.",
+  "signatures": [
+    "Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_iternext",
+    "Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_len"
+  ],
+  "sites": [
+    "Modules/_struct.c unpackiter_iternext:2278 (WRITE the iterator index/offset: the non-atomic cursor advance the fleet's next() drives)",
+    "Modules/_struct.c unpackiter_len:2249 (READ the iterator index/offset for __length_hint__, driven by the fleet's length_hint reader)"
+  ],
+  "race_kind": "shared-iterator state: non-atomic cursor read/write on a single shared struct unpack iterator -> data race. A stdlib C iterator's per-iteration state mutated with no per-object critical section (Yhg1s shared-builtin ruling); same class as TSAN-0037 (bytes) / TSAN-0038 (str).",
+  "shared_state": "unpackiterobject index/offset field (and its reference to the source Struct + buffer) on a single shared iterator",
+  "severity": "moderate (a data race on the cursor -> mis-stepped / duplicated / OOB unpack reads under concurrency). Sharing one iterator across threads is unusual (lower real-world priority), but _struct declares no per-object locking. Already filed upstream (#154013).",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "Fleet-08 confirms both the self-race (unpackiter_iternext x2, 24 veh) and the length_hint face (| unpackiter_len, 64 veh) = 88 vehicles across diverse modules. The packaged repro.py mirrors the fleet vehicle (8 threads, half advancing one shared Struct('i').iter_unpack(bytes(4*4096)) via next(), half reading its cursor via operator.length_hint); it targets the same index race but was not independently re-run in isolation this session.",
+  "suggested_fix": "Same as the str/bytes iterators: make the unpack-iterator's index an atomic load/store (or take a per-iterator critical section over unpackiter_iternext / unpackiter_len). The whole builtin/stdlib sequence-iterator family shares this shape.",
+  "status": "reported",
+  "upstream_issue": 154013,
+  "found_date": "2026-07-18",
+  "found_in": "fusil-tsan_fleet_08",
+  "vehicles": 88,
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
+  "related_issues": ["cpython#154013"],
+  "related": "cpython#154013 is this bug (struct.iter_unpack iterator). Same builtin-iterator shared-cursor class as TSAN-0037 (bytes striter_next), TSAN-0038 (str unicode_ascii_iter_next / #153928), and the dict-iterator face folded to TSAN-0026. The op-h iterator pool cites #154013 (P3.1).",
+  "notes": "First fleet capture of the struct.iter_unpack iterator race (fusil op-h shares Struct('i').iter_unpack(...)). Not a separate filing -- it IS #154013; cataloged so fleets dedupe it and to record both the self-race and the length_hint (unpackiter_len) face."
+}
