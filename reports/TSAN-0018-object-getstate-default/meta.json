@@ -26,8 +26,8 @@
   "repro": "repro.py",
   "repro_reliability": "deterministic (exit 66) within a few seconds; SUMMARY may name either side of the same read/write pair",
   "suggested_fix": "In _PyObject_IsInstanceDictEmpty (dictobject.c:7666) read the loop bound via LOAD_KEYS_NENTRIES(keys) (= _Py_atomic_load_ssize_relaxed(&keys->dk_nentries)) instead of the plain keys->dk_nentries; relaxed ordering suffices. Non-free-threaded build unaffected (macro is a plain read there).",
-  "status": "confirmed",
-  "upstream_issue": null,
+  "status": "reported",
+  "upstream_issue": 153881,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_02",
   "vehicles": [
@@ -35,7 +35,7 @@
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:bcf98ddbc40)",
   "confirmed_unfixed_on": "heads/main:bcf98ddbc40 (current main tip of the build, Jul 4 2026)",
-  "notes": "Writer split_keys_entry_added:248 was deliberately made atomic ('increase before we decrease ... when we're racing with reads'); the reader in _PyObject_IsInstanceDictEmpty forgot the matching atomic load. The same file already uses the correct LOAD_KEYS_NENTRIES macro (dict_equal, :4632). Audit other plain iterations of shared-keys dk_nentries. In scope: __getstate__+setattr is a normal method race, distinct from concurrent __init__/construction (cf. cpython#127192). FLEET-04 (2026-07-16) WIDENED THIS: a third reader face turned up -- _PyDict_Next:3170 plain-reads a COMBINED dict's dk_nentries while insert_combined_dict:1911 bumps it with STORE_KEYS_NENTRIES. That makes the defect broader than the original split-keys framing: the same field is written atomically by BOTH writers and read plainly at several sites, and the correct macro (LOAD_KEYS_NENTRIES, dictobject.c:237) already exists and is used correctly at :4632. The new face matters most because the reader is the PUBLIC PyDict_Next C-API (seen via _PyType_GetSubclasses), so any C extension iterating a shared dict hits it. This is exactly the audit the original entry called for. API-SEARCH 2026-07-17: distinct from #144774 (that fixed BaseException.__setstate__, not the dk_nentries readers) despite a similar setattr+copy reproducer. Verdict NEW stands. gh api only.",
+  "notes": "Writer split_keys_entry_added:248 was deliberately made atomic ('increase before we decrease ... when we're racing with reads'); the reader in _PyObject_IsInstanceDictEmpty forgot the matching atomic load. The same file already uses the correct LOAD_KEYS_NENTRIES macro (dict_equal, :4632). Audit other plain iterations of shared-keys dk_nentries. In scope: __getstate__+setattr is a normal method race, distinct from concurrent __init__/construction (cf. cpython#127192). FLEET-04 (2026-07-16) WIDENED THIS: a third reader face turned up -- _PyDict_Next:3170 plain-reads a COMBINED dict's dk_nentries while insert_combined_dict:1911 bumps it with STORE_KEYS_NENTRIES. That makes the defect broader than the original split-keys framing: the same field is written atomically by BOTH writers and read plainly at several sites, and the correct macro (LOAD_KEYS_NENTRIES, dictobject.c:237) already exists and is used correctly at :4632. The new face matters most because the reader is the PUBLIC PyDict_Next C-API (seen via _PyType_GetSubclasses), so any C extension iterating a shared dict hits it. This is exactly the audit the original entry called for. API-SEARCH 2026-07-17: distinct from #144774 (that fixed BaseException.__setstate__, not the dk_nentries readers) despite a similar setattr+copy reproducer. Verdict NEW stands. gh api only. FILED from umbrella #153852 -> python/cpython#153881 (open; fix PR python/cpython#153882 (atomic dk_nentries load in _PyObject_IsInstanceDictEmpty)) [2026-07-18].",
   "related_issues": [
     {
       "num": 116738,

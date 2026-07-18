@@ -17,15 +17,15 @@
   "repro": "repro.py",
   "repro_reliability": "deterministic (exit 66 every run; 3/3 observed)",
   "suggested_fix": "read lz->cnt in count_repr via _Py_atomic_load_ssize_relaxed(&lz->cnt) (FT_ATOMIC_LOAD_SSIZE_RELAXED), matching the relaxed atomic load count_next already uses at itertoolsmodule.c:3591",
-  "status": "confirmed",
-  "upstream_issue": null,
+  "status": "reported",
+  "upstream_issue": 153908,
   "found_date": "2026-07-15",
   "found_in": "fusil-tsan_fleet_01",
   "vehicles": [
     "inst-04/python/asyncio_tools-warning_threadsanitizer_data_race-tsanNEW"
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, BuildId 210f4dee1678f3b37d4df3e6b4d2f870b5f45e9c)",
-  "notes": "Real bug: incomplete free-threading atomic conversion of the count object. count_next was hardened (relaxed-atomic load + CAS on lz->cnt, plus a critical section for the slow-mode fast->slow transition), but count_repr's fast-mode read of lz->cnt was left as a plain load. TSan's SUMMARY top-frame alternates between count_repr:3612 and count_next:3599/_Py_atomic_compare_exchange_ssize depending on scheduling; same race. Fleet vehicle drove the write side via list(count()) (list_extend_iter -> count_next); the minimal repro uses next() instead to avoid the infinite list(). Audit other itertools objects for the same atomic-write/plain-read asymmetry.",
+  "notes": "Real bug: incomplete free-threading atomic conversion of the count object. count_next was hardened (relaxed-atomic load + CAS on lz->cnt, plus a critical section for the slow-mode fast->slow transition), but count_repr's fast-mode read of lz->cnt was left as a plain load. TSan's SUMMARY top-frame alternates between count_repr:3612 and count_next:3599/_Py_atomic_compare_exchange_ssize depending on scheduling; same race. Fleet vehicle drove the write side via list(count()) (list_extend_iter -> count_next); the minimal repro uses next() instead to avoid the infinite list(). Audit other itertools objects for the same atomic-write/plain-read asymmetry. FILED from umbrella #153852 -> python/cpython#153908 (FIXED (merged PR python/cpython#153917; 3.14/3.15 backports #153952/#153951 open)) [2026-07-18].",
   "related_issues": [
     {
       "num": 151409,
