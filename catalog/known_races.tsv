@@ -20,6 +20,7 @@ TSAN-0008	Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:initContext
 TSAN-0008	Modules/_lsprof.c:flush_unmatched | Modules/_lsprof.c:ptrace_leave_call
 TSAN-0008	Modules/_lsprof.c:getEntry | Modules/rotatingtree.c:RotatingTree_Enum
 TSAN-0008	Modules/_lsprof.c:ptrace_leave_call | Objects/obmalloc.c:_PyMem_DebugRawFree
+TSAN-0008	Modules/rotatingtree.c:RotatingTree_Add | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0008	Modules/rotatingtree.c:RotatingTree_Get | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0009	Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer | Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer
 TSAN-0009	Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer | Modules/expat/xmlparse.c:PyExpat_XML_GetCurrentColumnNumber
@@ -85,6 +86,7 @@ TSAN-0025	Modules/readline.c:readline_set_auto_history_impl | Modules/readline.c
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ssize_relaxed | Objects/dictobject.c:dictiter_iternextitem_lock_held
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:dictiter_iternext_threadsafe
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/dictobject.c:get_index_from_order
+TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:dictiter_iternextitem_lock_held
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:get_index_from_order
 TSAN-0027	Objects/typeobject.c:add_subclass | Objects/typeobject.c:clear_tp_subclasses
 TSAN-0028	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ullong_relaxed | Modules/_threadmodule.c:rlock_repr
