@@ -7,6 +7,13 @@ and the snapshot can never drift from the in-loop deduper.
 Usage:
   [FUSIL_TSAN_DEDUP=/path/to/fusil/fusil/python/tsan_dedup.py] ingest.py [globs...]
   default glob: ~/crashers/tsan-*/*   (dirs containing a `stdout` with a TSan report)
+
+Extension source roots (fusil Slice D): to dedupe an out-of-tree C extension's OWN races (rather
+than dropping them to noparse), pass its source-tree root(s) so a frame under that root is keyed
+by its path relative to it. Either repeat ``--source-root DIR`` (``-r DIR``) or set
+``FUSIL_TSAN_SOURCE_ROOTS`` to a colon-separated list. With no roots the CPython-only signatures
+are byte-for-byte unchanged (and the parser is called the old one-arg way, so this stays
+compatible with a fusil checkout that predates Slice D).
 """
 import collections
 import glob
@@ -35,11 +42,34 @@ def _load_tsan_dedup():
     )
 
 
+def _parse_source_roots(argv):
+    """Collect --source-root/-r DIR args + FUSIL_TSAN_SOURCE_ROOTS (colon-sep). Returns the
+    remaining non-flag args (globs) and the roots list."""
+    roots = []
+    env = os.environ.get("FUSIL_TSAN_SOURCE_ROOTS")
+    if env:
+        roots.extend(p for p in env.split(":") if p)
+    rest = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-r", "--source-root"):
+            if i + 1 < len(argv):
+                roots.append(argv[i + 1])
+                i += 2
+                continue
+        elif a.startswith("--source-root="):
+            roots.append(a.split("=", 1)[1])
+        elif not a.startswith("-"):
+            rest.append(a)
+        i += 1
+    return rest, roots
+
+
 def main():
     td = _load_tsan_dedup()
-    globs = [a for a in sys.argv[1:] if not a.startswith("-")] or [
-        os.path.expanduser("~/crashers/tsan-*/*")
-    ]
+    globs, source_roots = _parse_source_roots(sys.argv[1:])
+    globs = globs or [os.path.expanduser("~/crashers/tsan-*/*")]
     snap_path = ROOT / "catalog" / "known_races.tsv"
     snap = td.load_catalog_file(snap_path) if snap_path.exists() else {}
     supp = td.Suppressor.from_file(str(ROOT / "catalog" / "suppressions.txt"))
@@ -60,7 +90,13 @@ def main():
         except OSError:
             other["unreadable"] += 1
             continue
-        report = td.parse_report(text)
+        # Pass source_roots ONLY when set, so with no roots we call the old one-arg parse_report
+        # -- keeping this compatible with a fusil checkout that predates Slice D.
+        report = (
+            td.parse_report(text, source_roots=source_roots)
+            if source_roots
+            else td.parse_report(text)
+        )
         if report is None:
             other["noparse"] += 1
             continue
@@ -76,7 +112,8 @@ def main():
         else:
             new[report["signature"]].append(os.path.basename(d))
 
-    print("# ingested %d crash dirs vs %s\n" % (len(dirs), snap_path.name))
+    roots_note = (" | source-roots: %s" % ", ".join(source_roots)) if source_roots else ""
+    print("# ingested %d crash dirs vs %s%s\n" % (len(dirs), snap_path.name, roots_note))
     print("## NEW race signatures (need a report) " + "-" * 24)
     if not new:
         print("  (none -- every parsed race matched the catalog)")
