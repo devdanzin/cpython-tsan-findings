@@ -94,3 +94,11 @@ Modules/posixmodule.c:posixmodule_exec \| Objects/structseq.c:count_members
 # would give these a specific (libcrypto / tzset_internal) signature instead of a generic collapse
 # -- otherwise every new generic-frame permutation needs its own suppression line.
 ^Objects/methodobject.c:cfunction_vectorcall_NOARGS \| Objects/typeobject.c:tp_new_wrapper$
+
+# --- fleet-05 additions (2026-07-18) ---
+
+# Subinterpreter machinery -- out of scope per cpython#143232. posixmodule_exec (the posix module
+# init, re-run under concurrent interpreter creation via _interpreters) races
+# initialize_structseq_dict on the static global 'stat_result_fields' (Modules/posixmodule.c:18817).
+# Same class as the fleet-04 `posixmodule_exec | count_members` entry above.
+Modules/posixmodule.c:posixmodule_exec \| Objects/structseq.c:initialize_structseq_dict

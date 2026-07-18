@@ -6,7 +6,9 @@
   "signatures": [
     "Python/instrumentation.c:monitoring_use_tool_id_impl | Python/instrumentation.c:monitoring_use_tool_id_impl",
     "Python/instrumentation.c:monitoring_get_tool_impl | Python/instrumentation.c:monitoring_use_tool_id_impl",
-    "Python/instrumentation.c:monitoring_free_tool_id_impl | Python/instrumentation.c:monitoring_use_tool_id_impl"
+    "Python/instrumentation.c:monitoring_free_tool_id_impl | Python/instrumentation.c:monitoring_use_tool_id_impl",
+    "Python/instrumentation.c:monitoring_clear_tool_id_impl | Python/instrumentation.c:monitoring_free_tool_id_impl",
+    "Python/instrumentation.c:monitoring_free_tool_id_impl | Python/instrumentation.c:monitoring_get_tool_impl"
   ],
   "sites": [
     "Python/instrumentation.c monitoring_use_tool_id_impl:2190 (read: if (interp->monitoring_tool_names[tool_id] != NULL))",

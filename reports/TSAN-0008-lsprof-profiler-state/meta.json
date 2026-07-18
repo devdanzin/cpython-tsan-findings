@@ -13,7 +13,8 @@
     "Modules/_lsprof.c:_lsprof_Profiler__creturn_callback_impl | Objects/obmalloc.c:_PyMem_DebugRawFree",
     "Modules/rotatingtree.c:RotatingTree_Get | Objects/obmalloc.c:_PyMem_DebugRawFree",
     "Modules/_lsprof.c:Stop | Modules/_lsprof.c:initContext",
-    "Modules/_lsprof.c:clearEntries | Modules/_lsprof.c:getEntry"
+    "Modules/_lsprof.c:clearEntries | Modules/_lsprof.c:getEntry",
+    "Modules/_lsprof.c:Stop | Modules/_lsprof.c:ptrace_leave_call"
   ],
   "sites": [
     "Modules/_lsprof.c flush_unmatched:866 (read: while (pObj->currentProfilerContext) \u2014 in profiler_dealloc:984, NOT critical-section-guarded)",

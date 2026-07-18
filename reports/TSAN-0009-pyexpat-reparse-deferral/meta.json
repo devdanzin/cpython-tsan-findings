@@ -16,7 +16,10 @@
     "Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer",
     "Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer | Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer",
     "Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:callProcessor",
-    "Modules/expat/xmlparse.c:setContext | Modules/expat/xmlparse.c:setContext"
+    "Modules/expat/xmlparse.c:setContext | Modules/expat/xmlparse.c:setContext",
+    "Modules/expat/xmlparse.c:PyExpat_XML_SetParamEntityParsing | Modules/expat/xmlparse.c:PyExpat_XML_SetParamEntityParsing",
+    "Modules/expat/xmlparse.c:PyExpat_XML_SetStartElementHandler | Modules/expat/xmlparse.c:PyExpat_XML_SetStartElementHandler",
+    "Modules/expat/xmlparse.c:poolAppendChar | Modules/expat/xmlparse.c:poolGrow"
   ],
   "sites": [
     "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3035 (write size 1: parser->m_reparseDeferralEnabled = enabled)",

@@ -5,7 +5,9 @@
   "description": "list_sort_impl takes NO per-object critical section: it detaches the items array (ob_item=NULL, size=0) and, with no key func, sorts saved_ob_item (the list's own array) in place via binarysort. Two threads sorting the same shared list (or a concurrent reader holding the pre-detach ob_item) race on the array slots. RULED A BUG by Thomas Wouters (Yhg1s) 2026-07-15 (same shared-builtin class).",
   "signatures": [
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ptr | Objects/listobject.c:binarysort",
-    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ptr | Objects/listobject.c:sortslice_copy_decr"
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ptr | Objects/listobject.c:sortslice_copy_decr",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ptr | Objects/listobject.c:sortslice_copy_incr",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ptr | Objects/listobject.c:sortslice_memmove"
   ],
   "sites": [
     "Objects/listobject.c binarysort:1918 (a[L] = pivot -- rewrites the detached items array)",
