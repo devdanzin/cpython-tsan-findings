@@ -2,10 +2,9 @@
 
 `/home/fusil/runs/fusil-tsan_fleet_07` — 4 instances, 381 crash dirs (373 with a
 `stdout`; the other 8 are in-flight `session-N` dirs from the fleet being stopped
-mid-session). First fleet run after the Phase-4 A–E emitter work merged (roles /
-provenance / richer target objects / extension-object iterators / weird
-subclasses); **`--tsan-weird-subclasses` was NOT passed**, so the hostile-subclass
-path did not run.
+mid-session). **This is the LAST fleet BEFORE the Phase-4 A–E emitter work** (its
+instances were started before those merges landed; fleet 08 is the first fleet
+*with* Phase-4). Useful as the pre-Phase-4 baseline to compare against fleet 08.
 
 ## Net: 0 new bugs
 
@@ -55,9 +54,9 @@ withdrawn/handled shared-builtin faces) — the anchored suppressions in
 
 ## Takeaways
 
-- Phase-4 A–E (without `--tsan-weird-subclasses`) did not change the finding
-  distribution here — same known races, no new signatures. The op-(h) dict
-  shared-iterator sharing surfaced the store-side face of TSAN-0026 (folded).
-- Fleet 08 (running the same code) is reportedly producing more hits; triage it
-  next. Fleet 09 will add `--tsan-weird-subclasses`.
-- TSAN-0033 keeps recurring on asyncio targets (18 here); already filed.
+- Pre-Phase-4 baseline: the catalog held (24 known races, 2 folded faces, 0 new
+  bugs). The one op-(h)-flavoured face here (`dictiter_iternextitem_lock_held`
+  store side → TSAN-0026) came from the P3.1 iterator ops (already in this build),
+  not Phase-4. Compare against fleet 08 (first with Phase-4), which crashes far
+  faster and lights up the whole iterator-cursor race family.
+- TSAN-0033 keeps recurring on asyncio targets (18 here); already filed (#153809).
