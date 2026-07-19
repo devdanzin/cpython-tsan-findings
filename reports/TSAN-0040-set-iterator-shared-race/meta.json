@@ -28,9 +28,10 @@
     "inst-01/ntpath-warning_threadsanitizer_data_race-tsanNEW",
     "inst-02/pprint-warning_threadsanitizer_data_race-tsanNEW"
   ],
-  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
-  "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
-  "related_issues": ["cpython#153928", "cpython#154013"],
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer); also reproduced on release-ft-nojit-tsan (release + TSan) -> NOT a debug-only artifact",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build, current main)",
+  "related_issues": ["cpython#112069", "cpython#120496", "cpython#153928", "cpython#154013"],
+  "prior_art": "gh-112069 ('Make set thread-safe in --disable-gil builds', CLOSED) + PR #117935 ('gh-112069: Make setiter_iternext to be thread-safe', MERGED 2024-04-16). #117935 made concurrent iteration of a shared SET safe: it atomic-loads si->si_used and takes Py_BEGIN_CRITICAL_SECTION(so) around the table walk. But it left the ITERATOR's own cursor UNPROTECTED -- `si->si_pos = i+1` and `si->len--` are plain writes OUTSIDE that critical section (the CS is on the set `so`, not the iterator), and setiter_len (untouched by #117935) plainly reads si->len / si->si_used. So a SHARED set-iterator still races on its private cursor. gh-120496 ('Sequence iterator thread-safety') is the general shared-iterator question.",
   "related": "Same builtin-iterator shared-cursor class as TSAN-0037 (bytes striter_next), TSAN-0038 (str unicode iter / #153928), TSAN-0039 (struct unpackiter / #154013), and TSAN-0026 (dict iterator). The op-h iterator pool (P3.1) is what shares these.",
-  "notes": "First fleet capture of the set iterator race (fusil op-h shares iter(set(...))). Candidate for an upstream filing (or an addition to the builtin-iterator family umbrella #153852) -- awaiting maintainer go-ahead. Cataloged now so fleets dedupe it; records both the length_hint (setiter_len) face and the self-race face."
+  "notes": "NEW / not covered by the merged fix: gh-112069/#117935 hardened setiter_iternext's access to the SET, but the per-iterator cursor (si->len, si->si_pos, and the si->si_used=-1 write) is still non-atomic, so a shared set-ITERATOR races setiter_len -> the length_hint reader vs next() advance on si->len (fleet face) and the self-race (repro). Reproduced in isolation on debug AND release TSan builds (exit 66). Fileable follow-up to gh-112069 (same shared-iterator class as the filed str #153928 / struct #154013), OR fold into the builtin-iterator family umbrella #153852 -- awaiting maintainer go-ahead (outward-facing)."
 }

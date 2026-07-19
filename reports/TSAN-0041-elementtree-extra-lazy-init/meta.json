@@ -30,9 +30,12 @@
     "inst-01/_elementtree-warning_threadsanitizer_data_race-tsanNEW-2",
     "inst-02/_elementtree-warning_threadsanitizer_data_race-tsanNEW"
   ],
-  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
-  "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
-  "related_issues": [],
-  "related": "Distinct from the builtin-iterator cursor family (TSAN-0037/0038/0039/0040/0026). Closest relatives are other lazy-init-without-lock FT bugs. _elementtree has many `if (!self->extra) create_extra(...)` call sites -> the fix must cover all of them.",
-  "notes": "HIGH-VALUE candidate for an upstream filing (a real _elementtree free-threading data race + leak on a realistically-shared object, C accelerator). Awaiting maintainer go-ahead before filing (outward-facing). The isolated repro is minimal (shared Element + concurrent .attrib/len)."
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer); also reproduced on release-ft-nojit-tsan (release + TSan) -> NOT a debug-only artifact",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build, predates PR #149918)",
+  "status": "reported",
+  "upstream_issue": 149816,
+  "upstream_pr": 149918,
+  "related_issues": ["cpython#149816", "cpython#149918"],
+  "related": "ALREADY REPORTED upstream: gh-149816 ('22 free-threading race conditions') enumerates the unsynchronized `_elementtree` `extra`/`attrib` races, and OPEN PR #149918 ('gh-149816: Fix race conditions in Modules/_elementtree.c') is the comprehensive fix -- it wraps create_extra's field-init, element_attrib_getter's `if (!self->extra) create_extra(...)`, element_get_attrib, element_length, clear_extra, and traverse in Py_BEGIN_CRITICAL_SECTION(self). That is exactly this race. Distinct from the builtin-iterator cursor family (TSAN-0037/0038/0039/0040/0026), and from the other _elementtree FT entries TSAN-0022 (SetEvents) / TSAN-0031 (TreeBuilder).",
+  "notes": "NOT a new find -- this is gh-149816 / PR #149918 (OPEN, unmerged at the fleet build a1d580430c8), independently reproduced by fusil --tsan (fleet-10, 3 veh) with a minimal isolated repro (shared Element + concurrent .attrib/len -> exit 66 on both debug and release TSan builds). Value: confirms the fix is still needed on current main and that the create_extra WRITE/write (lazy-init) + attrib-getter faces reproduce, not just the read faces gh-149816 lists. No new filing needed; a confirmation comment on #149816/#149918 (that fusil reproduces it and the PR resolves it) is the only outward-facing step, at the maintainer's discretion. When PR #149918 merges, re-run repro.py to move status -> fixed."
 }

@@ -27,9 +27,10 @@
   "vehicle_examples": [
     "inst-03/itertools-warning_threadsanitizer_data_race-tsanNEW"
   ],
-  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
-  "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
-  "related_issues": ["cpython#153908"],
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer); also reproduced on release-ft-nojit-tsan (release + TSan) -> NOT a debug-only artifact",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build, current main)",
+  "related_issues": ["cpython#123471", "cpython#143543", "cpython#146613", "cpython#153908"],
+  "prior_art": "groupby_next has NO critical section at all on current main: it plain-writes gbo->currgrouper (:537) and (via groupby_step) gbo->currvalue / currkey with no atomics or lock. The existing groupby hardening (gh-143543 + gh-146613, MERGED) added Py_INCREF snapshots around PyObject_RichCompareBool to fix a RE-ENTRANCY use-after-free (a user __eq__ re-entering next()) -- that is ORTHOGONAL to the thread race and does not add any per-object locking. gh-123471 ('Make concurrent iteration over pairwise/combinations/permutations/cwr/product/... safe under free-threading', OPEN) is the itertools-FT-safety umbrella but does NOT list groupby.",
   "related": "Shared stateful-itertools-object class, same as itertools.count TSAN-0006 (#153908). The op-h/shared-object path (P3.1) shares the groupby. Distinct from the sequence-iterator cursor family (TSAN-0037/0038/0039/0040/0026).",
-  "notes": "First fleet capture of a shared itertools.groupby race. Candidate for an upstream filing (or grouping with the itertools FT-hardening effort) -- awaiting maintainer go-ahead. Cataloged now so fleets dedupe it; records the groupby_next self-race and the _grouper_create/_grouper_next child-grouper faces."
+  "notes": "NEW / unaddressed: a shared itertools.groupby races on gbo->currkey/currvalue/tgtkey/currgrouper -- no per-object critical section exists (the merged gh-143543/#146613 fixes are re-entrancy-only, not thread-safety; gh-123471 doesn't cover groupby). Reproduced in isolation on debug AND release TSan builds (exit 66). Fileable (fits the gh-123471 spirit; groupby is a gap there) -- awaiting maintainer go-ahead (outward-facing). Records the groupby_next self-race and the _grouper_create/_grouper_next child-grouper faces."
 }
