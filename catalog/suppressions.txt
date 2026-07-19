@@ -112,3 +112,8 @@ Modules/posixmodule.c:posixmodule_exec \| Objects/structseq.c:initialize_structs
 # noise, not a target finding. Matches any race with a tracemalloc.c frame or the allocator swap.
 tracemalloc\.c:
 Objects/obmalloc\.c:PyMem_(Set|Get)Allocator
+
+# --- magalu import (2026-07-19) ---
+# FT subinterpreter machinery -- out of scope per cpython#143232 (don't file FT-subinterp races).
+# new_interpreter racing _PyInterpreterState_IsReady during concurrent interpreter creation.
+Python/pylifecycle.c:new_interpreter \| Python/pystate.c:_PyInterpreterState_IsReady

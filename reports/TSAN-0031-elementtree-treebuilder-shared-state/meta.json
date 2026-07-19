@@ -16,7 +16,8 @@
     "Modules/_elementtree.c:treebuilder_handle_start | Modules/_elementtree.c:treebuilder_handle_start",
     "Modules/_elementtree.c:treebuilder_handle_pi | Modules/_elementtree.c:treebuilder_handle_start",
     "Modules/_elementtree.c:treebuilder_flush_data | Modules/_elementtree.c:treebuilder_handle_start",
-    "Modules/_elementtree.c:element_add_subelement | Modules/_elementtree.c:element_resize"
+    "Modules/_elementtree.c:element_add_subelement | Modules/_elementtree.c:element_resize",
+    "Modules/_elementtree.c:treebuilder_extend_element_text_or_tail | Modules/_elementtree.c:treebuilder_handle_data"
   ],
   "sites": [
     "Modules/_elementtree.c treebuilder_flush_data:2684 (READ self->data: `if (!self->data)`; called at top of handle_start/_end/_comment/_pi)",

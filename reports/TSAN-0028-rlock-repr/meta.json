@@ -6,7 +6,9 @@
   "signatures": [
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ullong_relaxed | Modules/_threadmodule.c:rlock_repr",
     "Modules/_threadmodule.c:rlock_repr | Python/lock.c:_PyRecursiveMutex_LockTimed",
-    "Modules/_threadmodule.c:_thread_RLock__release_save_impl | Modules/_threadmodule.c:rlock_repr"
+    "Modules/_threadmodule.c:_thread_RLock__release_save_impl | Modules/_threadmodule.c:rlock_repr",
+    "Modules/_threadmodule.c:_thread_RLock__acquire_restore_impl | Modules/_threadmodule.c:rlock_repr",
+    "Modules/_threadmodule.c:rlock_repr | Python/lock.c:_PyRecursiveMutex_TryUnlock"
   ],
   "sites": [
     "Modules/_threadmodule.c rlock_repr:1291 (PLAIN read of self->lock.thread -- the racing read)",

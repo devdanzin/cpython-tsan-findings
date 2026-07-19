@@ -11,11 +11,13 @@ TSAN-0006	Include/cpython/pyatomic_gcc.h:_Py_atomic_compare_exchange_ssize | Mod
 TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Include/internal/pycore_long.h:_PyLong_InitTag
 TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawAlloc
 TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawFree
+TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/unicodeobject.c:_PyUnicode_ResizeCompact
 TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawAlloc
 TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0006	Modules/itertoolsmodule.c:count_nextlong | Modules/itertoolsmodule.c:count_repr
 TSAN-0006	Modules/itertoolsmodule.c:count_repr | Modules/itertoolsmodule.c:count_repr
 TSAN-0006	Objects/longobject.c:long_alloc | Objects/longobject.c:long_to_decimal_string_internal
+TSAN-0006	Objects/longobject.c:long_to_decimal_string_internal | Objects/longobject.c:long_to_decimal_string_internal
 TSAN-0006	Objects/longobject.c:long_to_decimal_string_internal | Objects/longobject.c:x_add
 TSAN-0006	Objects/longobject.c:long_to_decimal_string_internal | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0006	SEGV Objects/object.c:PyObject_Repr
@@ -108,8 +110,10 @@ TSAN-0026	Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject
 TSAN-0026	Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_len
 TSAN-0027	Objects/typeobject.c:add_subclass | Objects/typeobject.c:clear_tp_subclasses
 TSAN-0028	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ullong_relaxed | Modules/_threadmodule.c:rlock_repr
+TSAN-0028	Modules/_threadmodule.c:_thread_RLock__acquire_restore_impl | Modules/_threadmodule.c:rlock_repr
 TSAN-0028	Modules/_threadmodule.c:_thread_RLock__release_save_impl | Modules/_threadmodule.c:rlock_repr
 TSAN-0028	Modules/_threadmodule.c:rlock_repr | Python/lock.c:_PyRecursiveMutex_LockTimed
+TSAN-0028	Modules/_threadmodule.c:rlock_repr | Python/lock.c:_PyRecursiveMutex_TryUnlock
 TSAN-0029	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_char_relaxed | Python/instrumentation.c:_Py_call_instrumentation_line
 TSAN-0029	Objects/frameobject.c:frame_trace_opcodes_set_impl | Python/legacy_tracing.c:call_trace_func
 TSAN-0029	Objects/frameobject.c:frame_trace_opcodes_set_impl | Python/legacy_tracing.c:sys_trace_instruction_func
@@ -122,6 +126,7 @@ TSAN-0030	Python/instrumentation.c:monitoring_use_tool_id_impl | Python/instrume
 TSAN-0031	Modules/_elementtree.c:element_add_subelement | Modules/_elementtree.c:element_resize
 TSAN-0031	Modules/_elementtree.c:treebuilder_extend_element_text_or_tail | Modules/_elementtree.c:treebuilder_extend_element_text_or_tail
 TSAN-0031	Modules/_elementtree.c:treebuilder_extend_element_text_or_tail | Modules/_elementtree.c:treebuilder_flush_data
+TSAN-0031	Modules/_elementtree.c:treebuilder_extend_element_text_or_tail | Modules/_elementtree.c:treebuilder_handle_data
 TSAN-0031	Modules/_elementtree.c:treebuilder_flush_data | Modules/_elementtree.c:treebuilder_handle_data
 TSAN-0031	Modules/_elementtree.c:treebuilder_flush_data | Modules/_elementtree.c:treebuilder_handle_start
 TSAN-0031	Modules/_elementtree.c:treebuilder_handle_comment | Modules/_elementtree.c:treebuilder_handle_end
@@ -152,6 +157,7 @@ TSAN-0040	Objects/setobject.c:setiter_iternext | Objects/setobject.c:setiter_len
 TSAN-0041	Modules/_elementtree.c:clear_extra | Modules/_elementtree.c:create_extra
 TSAN-0041	Modules/_elementtree.c:clear_extra | Modules/_elementtree.c:element_bool
 TSAN-0041	Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_attrib_getter
+TSAN-0041	Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_bool
 TSAN-0041	Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_length
 TSAN-0042	Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:_grouper_next
 TSAN-0042	Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:groupby_next
@@ -165,3 +171,13 @@ TSAN-0045	Objects/genericaliasobject.c:ga_iternext | Objects/genericaliasobject.
 TSAN-0046	Modules/_io/textio.c:_io_IncrementalNewlineDecoder_reset_impl | Modules/_io/textio.c:incrementalnewlinedecoder_newlines_get
 TSAN-0047	heap-use-after-free Objects/obmalloc.c:_PyMem_Strdup
 TSAN-0048	Include/cpython/pyatomic_gcc.h:_Py_atomic_load_uint64_relaxed | Modules/_csv.c:Reader_iternext_lock_held
+TSAN-0049	Modules/_lsprof.c:getEntry | Objects/obmalloc.c:_PyMem_DebugRawFree
+TSAN-0049	SEGV Modules/rotatingtree.c:RotatingTree_Get
+TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer | Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer
+TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse
+TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer
+TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:callProcessor
+TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:doProlog
+TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:errorProcessor
+TSAN-0051	Objects/abstract.c:PyBuffer_Release | Objects/picklebufobject.c:picklebuf_raw
+TSAN-0052	Objects/templateobject.c:templateiter_next | Objects/templateobject.c:templateiter_next

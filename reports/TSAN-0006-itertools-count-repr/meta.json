@@ -16,7 +16,9 @@
     "Modules/itertoolsmodule.c:count_repr | Modules/itertoolsmodule.c:count_repr",
     "? | Modules/itertoolsmodule.c:count_nextlong",
     "SEGV Objects/object.c:PyObject_Repr",
-    "Include/internal/pycore_long.h:_PyLong_DigitCount | Include/internal/pycore_long.h:_PyLong_InitTag"
+    "Include/internal/pycore_long.h:_PyLong_DigitCount | Include/internal/pycore_long.h:_PyLong_InitTag",
+    "Objects/longobject.c:long_to_decimal_string_internal | Objects/longobject.c:long_to_decimal_string_internal",
+    "Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/unicodeobject.c:_PyUnicode_ResizeCompact"
   ],
   "sites": [
     "Modules/itertoolsmodule.c count_repr:3612 (plain read of lz->cnt in fast-mode repr branch)",

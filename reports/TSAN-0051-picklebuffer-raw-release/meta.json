@@ -1,0 +1,31 @@
+{
+  "id": "TSAN-0051",
+  "slug": "picklebuffer-raw-release",
+  "title": "pickle.PickleBuffer: concurrent .raw() and .release() race the shared Py_buffer view (picklebuf_raw vs PyBuffer_Release, Objects/picklebufobject.c)",
+  "description": "pickle.PickleBuffer wraps a Py_buffer view. On a free-threaded build, a shared PickleBuffer used concurrently races: .raw() (picklebuf_raw, Objects/picklebufobject.c:155) reads self->view while .release() (picklebuf_release:196 -> PyBuffer_Release, abstract.c:827) writes/invalidates it -> data race on the view (and .raw() may read a just-released buffer). No per-object synchronization.",
+  "signatures": [
+    "Objects/abstract.c:PyBuffer_Release | Objects/picklebufobject.c:picklebuf_raw"
+  ],
+  "sites": [
+    "Objects/picklebufobject.c picklebuf_raw:155 (READ self->view to build the raw memoryview)",
+    "Objects/picklebufobject.c picklebuf_release:196 -> Objects/abstract.c PyBuffer_Release:827 (WRITE/invalidate self->view)"
+  ],
+  "race_kind": "shared buffer-object state: concurrent read (.raw()) vs release (.release()) of a PickleBuffer's Py_buffer with no per-object lock -> data race, and a read of a released buffer (memory-unsafe-ish).",
+  "shared_state": "PicklebufObject.view (the Py_buffer) on a shared PickleBuffer",
+  "severity": "low-to-moderate: a .raw() racing .release() can read a buffer being torn down (use-after-release of the view's fields). Sharing one PickleBuffer and releasing it while another thread reads it is unusual, which caps priority. Free-threaded build only.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads sharing one pickle.PickleBuffer, half .raw() half .release()) exits 66 on debug-ft-nojit-tsan; signature matches the magalu fleet exactly. Reproduced on our build.",
+  "suggested_fix": "Take the PickleBuffer's per-object critical section around .raw() and .release() (and the buffer-export path), or document that a PickleBuffer must not be shared/released concurrently.",
+  "status": "drafted",
+  "upstream_issue": null,
+  "related_issues": [],
+  "prior_art": "gh api search found no PickleBuffer free-threading issue -> appears unfiled. Shared mutable-buffer-object race.",
+  "found_date": "2026-07-19",
+  "found_in": "magalu_tsan (fleet_tsan01/02)",
+  "vehicles": 1,
+  "confirmed_build": "3.16_ft_debug_tsan (magalu remote); reproduced independently on our debug-ft-nojit-tsan",
+  "confirmed_unfixed_on": "3.16.0a0 (both builds)",
+  "related": "Shared mutable-object race. Surfaced in a downloaded remote fleet.",
+  "notes": "NEW / appears unfiled. Low priority (unusual sharing: releasing a buffer while another thread reads it). Cataloged for dedup; fileable only if the maintainers want PickleBuffer to lock. Not proposing a filing."
+}

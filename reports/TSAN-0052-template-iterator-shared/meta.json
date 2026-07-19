@@ -1,0 +1,30 @@
+{
+  "id": "TSAN-0052",
+  "slug": "template-iterator-shared",
+  "title": "t-strings: templateiter_next advances a shared TemplateIter's from_strings flag + sub-iterators non-atomically (Objects/templateobject.c) -- value-benign",
+  "description": "The PEP 750 t-string template iterator (templateiterobject in Objects/templateobject.c, from iter(t'...')) alternates between the template's strings and interpolations, tracking which via a plain self->from_strings int and advancing self->stringsiter / self->interpolationsiter. templateiter_next writes self->from_strings (:25/:31/:36) and PyIter_Next's the shared sub-iterators with no synchronization. A shared TemplateIter driven by multiple threads races the from_strings flag and the sub-iterator cursors -> value-benign data race (wrong item order / duplicate / skip / StopIteration).",
+  "signatures": [
+    "Objects/templateobject.c:templateiter_next | Objects/templateobject.c:templateiter_next"
+  ],
+  "sites": [
+    "Objects/templateobject.c templateiter_next: WRITE self->from_strings (:25/:31/:36) + PyIter_Next(self->stringsiter/interpolationsiter), unsynchronized"
+  ],
+  "race_kind": "shared-iterator state: non-atomic read/write of a template iterator's from_strings flag and its sub-iterator cursors -> value-benign data race. Same class as the value-benign builtin iterators (gh-120496 / gh-124397).",
+  "shared_state": "templateiterobject.from_strings (int flag) + the shared stringsiter/interpolationsiter cursors on a single shared TemplateIter",
+  "severity": "low (value-benign): a mis-ordered / duplicated / skipped item under concurrency; no memory unsafety (the Py_SETREF is on a local `item`, not shared state). Per gh-124397 (iterator FT strategy) such concurrent-iterator value races are acceptable.",
+  "reproduced": false,
+  "repro": "repro.py",
+  "repro_reliability": "Magalu fleet surfaced the templateiter_next self-race (1 veh). repro.py (8 threads sharing one iter(t'...')) did NOT trip TSan in a quick isolated run -- a short template exhausts before the workers contend; a longer template / more interpolations is needed to widen the window. Not independently reproduced this session.",
+  "suggested_fix": "Per gh-124397 this value-benign class is acceptable (a shared iterator should be locked by the user). If ever hardened: atomic from_strings + per-iterator critical section over the sub-iterator advance.",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "related_issues": ["cpython#120496", "cpython#124397"],
+  "prior_art": "gh api search found no template-iterator FT issue -> appears unfiled, but it is the value-benign shared-iterator class (gh-120496 closed as acceptable per gh-124397). New iterator TYPE (PEP 750 t-strings, 3.14+), same defect shape.",
+  "found_date": "2026-07-19",
+  "found_in": "magalu_tsan (fleet_tsan01/02)",
+  "vehicles": 1,
+  "confirmed_build": "3.16_ft_debug_tsan (magalu remote)",
+  "confirmed_unfixed_on": "3.16.0a0",
+  "related": "Value-benign shared-iterator class, like seq/deque (TSAN-0044), set (TSAN-0040). The t-string template iterator is a new member. Surfaced in a downloaded remote fleet.",
+  "notes": "NEW iterator type but VALUE-BENIGN (gh-120496/gh-124397 class) -> not fileable. Cataloged for dedup. Crash-checked negative (the Py_SETREF is on a local, not shared state, so no double-free like ga_iternext/TSAN-0045)."
+}

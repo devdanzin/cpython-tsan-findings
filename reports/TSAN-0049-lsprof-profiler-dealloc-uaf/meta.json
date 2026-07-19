@@ -1,0 +1,31 @@
+{
+  "id": "TSAN-0049",
+  "slug": "lsprof-profiler-dealloc-uaf",
+  "title": "_lsprof: a Profiler is deallocated while its instrumentation callback still runs in another thread -> use-after-free (getEntry/RotatingTree_Get vs profiler_dealloc) = cpython#126884",
+  "description": "cProfile/_lsprof registers the ProfilerObject as a sys.monitoring instrumentation callback. On a free-threaded build, if the profiler is deallocated (profiler_dealloc, Modules/_lsprof.c:971, reached via a dealloc chain -- e.g. an exception traceback releasing the frame that held it) while ANOTHER thread's call event still invokes it (_pystart_callback -> ptrace_enter_call -> getEntry, _lsprof.c:245 -> RotatingTree_Get), the freed profiler's rotating-tree is read -> use-after-free, and the RotatingTree_Get walk SEGVs. This is cpython#126884 ('Calling cProfile.runctx in threads on a free-threading build segfaults').",
+  "signatures": [
+    "Modules/_lsprof.c:getEntry | Objects/obmalloc.c:_PyMem_DebugRawFree",
+    "SEGV Modules/rotatingtree.c:RotatingTree_Get"
+  ],
+  "sites": [
+    "Modules/_lsprof.c getEntry:245 (READ the profiler's rotating-tree during a call event, via ptrace_enter_call from the instrumentation callback)",
+    "Modules/_lsprof.c profiler_dealloc:971 (FREE the ProfilerObject -> PyObject_GC_Del -> _PyMem_DebugRawFree, while it is still the active instrumentation callback)"
+  ],
+  "race_kind": "object-lifetime / use-after-free: a Profiler freed while still registered as an instrumentation callback and concurrently invoked by another thread's call event. Memory-unsafe (SEGV in RotatingTree_Get on the freed tree).",
+  "shared_state": "the ProfilerObject (its rotating-tree of call entries) -- freed by profiler_dealloc while getEntry reads it",
+  "severity": "moderate (memory-unsafe: UAF -> SEGV), but ALREADY FILED (cpython#126884, CLOSED) and the sharing/lifetime pattern is a concurrent-profiler misuse the maintainers closed. Low new value.",
+  "reproduced": false,
+  "repro": "repro.py",
+  "repro_reliability": "Fleet (magalu, 3.16_ft_debug_tsan) surfaced getEntry|_PyMem_DebugRawFree (2 veh) + the RotatingTree_Get SEGV. repro.py (concurrent cProfile.runctx across 8 threads) mirrors the shape but did NOT deterministically crash/race in a quick isolated run -- the fleet hit the specific profiler-dealloc-while-active window. Not independently reproduced this session.",
+  "suggested_fix": "As tracked in cpython#126884 -- either keep the profiler alive for the duration of its instrumentation registration (it must not be freed while an active callback), or make concurrent profiling on the free-threaded build safe/serialized. (Profilers are largely single-threaded by design.)",
+  "status": "reported",
+  "upstream_issue": 126884,
+  "related_issues": ["cpython#126884"],
+  "prior_art": "cpython#126884 ('Calling cProfile.runctx in threads on a free-threading build segfaults', CLOSED) is exactly this. Related to but distinct from TSAN-0008 (lsprof profiler STATE race on flags) -- this is a profiler-LIFETIME use-after-free.",
+  "found_date": "2026-07-19",
+  "found_in": "magalu_tsan (fleet_tsan01/02)",
+  "vehicles": 2,
+  "confirmed_build": "3.16_ft_debug_tsan (magalu remote); same 3.16 free-threaded --with-thread-sanitizer version as our debug-ft-nojit-tsan",
+  "related": "Object-lifetime UAF class, like the socket accept/finalize dealloc-while-in-use race (fleet-12, non-reproducible). Distinct from TSAN-0008 (lsprof state). Surfaced in a downloaded remote fleet.",
+  "notes": "Known (= cpython#126884, CLOSED). Cataloged for dedup. Memory-unsafe crash but already filed + closed (concurrent-profiler lifetime). Not a new filing."
+}

@@ -1,0 +1,37 @@
+{
+  "id": "TSAN-0050",
+  "slug": "elementtree-xmlparser-shared",
+  "title": "_elementtree.XMLParser / pyexpat: concurrent feed()/flush()/close() on a shared parser race the single-threaded expat parser's internal state (Modules/expat/xmlparse.c)",
+  "description": "xml.etree.ElementTree.XMLParser (and pyexpat.xmlparser) wrap a single libexpat parser, which is single-threaded by design. On a free-threaded build, calling the parser's methods concurrently on ONE shared parser races expat's internal state with no CPython-side lock: e.g. XMLParser.flush() -> PyExpat_XML_SetReparseDeferralEnabled (xmlparse.c:3055) writes parser state while XMLParser.close()/feed() -> expat_parse -> PyExpat_XML_Parse/XML_ParseBuffer -> callProcessor (xmlparse.c:1188) reads/advances it. TSan reports many faces across the expat parse path (XML_Parse self-race, XML_ParseBuffer|callProcessor, |doProlog, |errorProcessor, SetReparseDeferralEnabled|callProcessor).",
+  "signatures": [
+    "Modules/expat/xmlparse.c:PyExpat_XML_Parse | Modules/expat/xmlparse.c:PyExpat_XML_Parse",
+    "Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer",
+    "Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:callProcessor",
+    "Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:doProlog",
+    "Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:errorProcessor",
+    "Modules/expat/xmlparse.c:PyExpat_XML_GetBuffer | Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer"
+  ],
+  "sites": [
+    "Modules/expat/xmlparse.c PyExpat_XML_Parse / XML_ParseBuffer / callProcessor / doProlog (advance the shared expat parser's state machine)",
+    "Modules/expat/xmlparse.c PyExpat_XML_SetReparseDeferralEnabled:3055 (write parser state via XMLParser.flush())",
+    "CPython wrappers: Modules/_elementtree.c expat_parse / _elementtree_XMLParser_close_impl / _flush_impl (no critical section around the expat calls)"
+  ],
+  "race_kind": "shared single-threaded C library object: concurrent use of one libexpat parser races its internal state. CPython's XMLParser/pyexpat wrapper takes no per-parser lock around the expat calls (same class as the thread-unsafe-libc localeconv, TSAN-0047 / cpython#127081).",
+  "shared_state": "the libexpat XML_Parser struct (parse position, buffer, processor pointers, reparse-deferral flag) inside a shared _elementtree.XMLParser / pyexpat.xmlparser",
+  "severity": "low-to-moderate: expat's internal state is corrupted under concurrent use (mis-parse, or reads of half-updated processor pointers). Sharing one parser across threads and driving it concurrently is unusual/misuse (a parser is inherently sequential), which caps priority. Free-threaded build only.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads sharing one ET.XMLParser, roles feed()/flush()/close()) exits 66 on debug-ft-nojit-tsan (SUMMARY: PyExpat_XML_Parse self-race). Magalu fleet drove the flush-vs-close faces (SetReparseDeferralEnabled|callProcessor etc.).",
+  "suggested_fix": "Take a per-parser critical section (Py_BEGIN_CRITICAL_SECTION(self)) around the expat calls in the XMLParser/pyexpat methods (feed/flush/close/Parse), so one shared parser is driven serially -- OR document that a parser must not be shared across threads (it is inherently sequential). Related to the broader _elementtree FT hardening (gh-149816 / gh-146022).",
+  "status": "drafted",
+  "upstream_issue": null,
+  "related_issues": ["cpython#127081", "cpython#146022"],
+  "prior_art": "gh api search found no specific issue for the XMLParser/expat shared-parser race. Same shared-thread-unsafe-C-object class as localeconv (TSAN-0047 / cpython#127081). The _elementtree FT effort (gh-149816 / gh-146022) is adjacent but about Element, not the parser.",
+  "found_date": "2026-07-19",
+  "found_in": "magalu_tsan (fleet_tsan01/02)",
+  "vehicles": 5,
+  "confirmed_build": "3.16_ft_debug_tsan (magalu remote); reproduced independently on our debug-ft-nojit-tsan",
+  "confirmed_unfixed_on": "3.16.0a0 (both builds)",
+  "related": "Shared-single-threaded-C-object class (cf. localeconv TSAN-0047). Distinct from the _elementtree Element `extra` race (TSAN-0041) and TreeBuilder (TSAN-0031/0022). Surfaced in a downloaded remote fleet.",
+  "notes": "NEW / appears unfiled, but LOW priority: sharing one XML parser across threads and driving it concurrently is misuse (a parser is sequential by nature). Fileable only if CPython wants XMLParser/pyexpat to lock. Cataloged for dedup. Not proposing a filing without maintainer interest."
+}
