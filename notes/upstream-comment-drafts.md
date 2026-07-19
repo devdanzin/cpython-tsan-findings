@@ -103,7 +103,7 @@ Exit 66 under TSAN; the script above races `_grouper_create` against `groupby_ne
 
 ## → NEW ISSUE (TSAN-0045) — GenericAlias iterator crash
 
-**Title:** `Crash (segfault) in ga_iternext: sharing a types.GenericAlias iterator across threads double-frees under free-threading`
+**Title:** `segfault in ga_iternext: sharing a types.GenericAlias iterator across threads double-frees under free-threading`
 
 **Body:**
 
@@ -111,9 +111,7 @@ Exit 66 under TSAN; the script above races `_grouper_create` against `groupby_ne
 
 ### Bug description
 
-On a free-threaded (`--disable-gil`) build, iterating a **single, shared** `types.GenericAlias`
-iterator (e.g. `iter(list[int])`) from multiple threads segfaults. `ga_iternext`
-(`Objects/genericaliasobject.c`) is a one-shot iterator with no synchronization:
+On a free-threaded (`--disable-gil`) build, iterating a single, shared `types.GenericAlias` iterator (e.g. `iter(list[int])`) from multiple threads segfaults. `ga_iternext` (`Objects/genericaliasobject.c`) is a one-shot iterator with no synchronization:
 
 ```c
 static PyObject *
@@ -134,11 +132,7 @@ ga_iternext(PyObject *op)
 }
 ```
 
-Two threads both observe `gi->obj != NULL`, both build the starred alias from it, and both reach
-`Py_SETREF(gi->obj, NULL)` (which is `tmp = gi->obj; gi->obj = NULL; Py_DECREF(tmp)`). With
-`gi->obj`'s refcount at 1 (the iterator is its only holder), the two `Py_DECREF`s free it twice —
-a double-free / refcount underflow — and the reads of `alias->origin`/`alias->args` become a
-use-after-free once the other thread frees it. The process crashes.
+Two threads both observe `gi->obj != NULL`, both build the starred alias from it, and both reach `Py_SETREF(gi->obj, NULL)` (which is `tmp = gi->obj; gi->obj = NULL; Py_DECREF(tmp)`). With `gi->obj`'s refcount at 1 (the iterator is its only holder), the two `Py_DECREF`s free it twice — a double-free / refcount underflow — and the reads of `alias->origin`/`alias->args` become a use-after-free once the other thread frees it. The process crashes.
 
 ### Reproducer
 
@@ -165,9 +159,7 @@ for _round in range(20000):
 print("done")
 ```
 
-`PYTHON_GIL=0 ./python repro.py` segfaults within the first few rounds — **5/5 runs on both a debug
-and a release (`-O0`, no sanitizer) free-threaded build**, so it is neither debug-only nor
-sanitizer-only:
+`PYTHON_GIL=0 ./python repro.py` segfaults within the first few rounds — 5/5 runs on both a debug and a release (`-O0`, no sanitizer) free-threaded build, so it is neither debug-only nor sanitizer-only:
 
 ```
 Thread NNNN received signal SIGSEGV, Segmentation fault.
@@ -178,8 +170,7 @@ Thread NNNN received signal SIGSEGV, Segmentation fault.
 ...
 ```
 
-ThreadSanitizer reports the same as a data race on `gi->obj` (`WARNING: ThreadSanitizer: data race
-... in ga_iternext`, exit 66).
+ThreadSanitizer reports the same as a data race on `gi->obj` (`WARNING: ThreadSanitizer: data race... in ga_iternext`, exit 66).
 
 ### Suggested fix
 
@@ -202,12 +193,106 @@ Py_DECREF(obj);
 return starred_alias;
 ```
 
-(Or wrap the body in `Py_BEGIN_CRITICAL_SECTION(gi)`.) This matches the "consume once" semantics and
-keeps the GIL build unchanged.
+(Or wrap the body in `Py_BEGIN_CRITICAL_SECTION(gi)`.) This matches the "consume once" semantics and keeps the GIL build unchanged.
 
-Per the iterator free-threading strategy (gh-124397), concurrent iteration may return duplicate or
-skipped values or raise — but it must not crash; this crashes. Distinct from gh-153298, which is the
-`GenericAlias.__parameters__` lazy-init race, not the iterator.
+Per the iterator free-threading strategy (gh-124397), concurrent iteration may return duplicate or skipped values or raise — but it must not crash; this crashes. Distinct from gh-153298, which is the `GenericAlias.__parameters__` lazy-init race, not the iterator.
+
+*(Found by `fusil --tsan`, a ThreadSanitizer fuzzer; crash confirmed by re-running the reproducer without a sanitizer on a plain free-threaded build. Draft and reproducer by Claude Code, minimized and reviewed by hand.)*
+
+---
+
+## → NEW ISSUE (TSAN-0043) — descriptor __qualname__ lazy cache
+
+**Title:** `Data race + leak: descr_get_qualname lazily caches d_qualname without synchronization (free-threading)`
+
+**Body:**
+
+# Bug report
+
+### Bug description
+
+On a free-threaded (`--disable-gil`) build, reading `__qualname__` on the **same** descriptor from
+multiple threads is a data race on the lazily-populated cache `descr->d_qualname`.
+`descr_get_qualname` (`Objects/descrobject.c`) does an unsynchronized check-then-write:
+
+```c
+static PyObject *
+descr_get_qualname(PyObject *self, void *Py_UNUSED(ignored))
+{
+    PyDescrObject *descr = (PyDescrObject *)self;
+    if (descr->d_qualname == NULL)
+        descr->d_qualname = calculate_qualname(descr);   // WRITE, no lock
+    return Py_XNewRef(descr->d_qualname);
+}
+```
+
+Descriptors (`method_descriptor` / `getset_descriptor` / `wrapper_descriptor`) live on their owning
+type, so they are shared across all threads. When two threads first read the same descriptor's
+`__qualname__`, both observe `d_qualname == NULL`, both call `calculate_qualname`, and both store
+into `descr->d_qualname` — a write/write data race on the pointer, plus a **leak**: the store is a
+plain assignment (the old value is `NULL`), so the losing thread's freshly-computed str is
+overwritten and never freed.
+
+This is value-benign (the two computed qualnames are equal, and there is no double-free, so it does
+not crash), but it is a genuine C11 data race and a small leak on a shared object. It is the same
+lazy-cache-without-synchronization pattern that gh-125267 fixed for `object.__reduce_ex__`'s
+`objreduce` cache.
+
+### Reproducer
+
+```python
+import threading
+
+NT = 8
+
+# Builtin C descriptors keep d_qualname == NULL until __qualname__ is first read, so each can be
+# raced exactly once. Race __qualname__ across threads on each freshly-untouched descriptor.
+descrs = []
+for tp in (str, bytes, list, dict, set, int, float, tuple, frozenset, bytearray):
+    for name, v in vars(tp).items():
+        if type(v).__name__ in ("method_descriptor", "getset_descriptor", "wrapper_descriptor"):
+            descrs.append(v)
+
+
+def worker(descriptor, barrier):
+    barrier.wait()
+    for _ in range(20):
+        _ = descriptor.__qualname__
+
+
+for _round in range(50):
+    for d in descrs:
+        bar = threading.Barrier(NT)
+        threads = [threading.Thread(target=worker, args=(d, bar)) for _ in range(NT)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+print("done")
+```
+
+Under a `--with-thread-sanitizer` free-threaded build (`PYTHON_GIL=0`, `TSAN_OPTIONS=…exitcode=66…`)
+this reports `WARNING: ThreadSanitizer: data race … in descr_get_qualname` (both sides
+`descr_get_qualname`, on `descr->d_qualname`) deterministically. Reproduced on both a debug and a
+release TSan build.
+
+### Suggested fix
+
+Serialize the lazy init — either a per-object critical section:
+
+```c
+if (descr->d_qualname == NULL) {
+    Py_BEGIN_CRITICAL_SECTION(descr);
+    if (descr->d_qualname == NULL)                       // re-check
+        descr->d_qualname = calculate_qualname(descr);
+    Py_END_CRITICAL_SECTION();
+}
+return Py_XNewRef(descr->d_qualname);
+```
+
+or a one-shot atomic compare-exchange (compute, `CAS(&descr->d_qualname, NULL, new)`, `Py_DECREF`
+the loser). The GIL build is unchanged either way. (gh-125267 took the "initialize eagerly" route
+for the analogous `objreduce` cache.)
 
 ### CPython versions tested on
 
@@ -217,4 +302,4 @@ CPython `main` (3.16.0a0), free-threaded `--disable-gil` build.
 
 Linux
 
-*(Found by `fusil --tsan`, a ThreadSanitizer fuzzer; crash confirmed by re-running the reproducer without a sanitizer on a plain free-threaded build. Draft and reproducer by Claude Code, minimized and reviewed by hand.)*
+*(Found by `fusil --tsan`, a ThreadSanitizer fuzzer. Draft and reproducer by Claude Code, minimized and reviewed by hand.)*
