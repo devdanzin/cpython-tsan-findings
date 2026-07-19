@@ -6,7 +6,8 @@
   "signatures": [
     "Modules/itertoolsmodule.c:groupby_next | Modules/itertoolsmodule.c:groupby_next",
     "Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:groupby_next",
-    "Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:_grouper_next"
+    "Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:_grouper_next",
+    "Modules/itertoolsmodule.c:groupby_next | Modules/itertoolsmodule.c:groupby_step"
   ],
   "sites": [
     "Modules/itertoolsmodule.c groupby_next:~537 (WRITE gbo->currkey / currvalue / tgtkey / currgrouper while advancing the shared groupby)",

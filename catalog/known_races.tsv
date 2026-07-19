@@ -8,6 +8,7 @@ TSAN-0004	Modules/cjkcodecs/_codecs_iso2022.c:iso2022_decode_reset | Objects/lon
 TSAN-0005	Modules/_decimal/_decimal.c:dec_hash | Modules/_decimal/_decimal.c:dec_hash
 TSAN-0006	? | Modules/itertoolsmodule.c:count_nextlong
 TSAN-0006	Include/cpython/pyatomic_gcc.h:_Py_atomic_compare_exchange_ssize | Modules/itertoolsmodule.c:count_repr
+TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Include/internal/pycore_long.h:_PyLong_InitTag
 TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawAlloc
 TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawAlloc
@@ -136,6 +137,7 @@ TSAN-0034	Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate
 TSAN-0034	Python/pylifecycle.c:handle_thread_shutdown_exception | Python/pystate.c:tstate_delete_common
 TSAN-0035	Modules/socketmodule.c:sock_gettimeout_impl | Modules/socketmodule.c:sock_setblocking
 TSAN-0036	Python/ceval.c:_PyEval_NoToolsForUnwind | Python/instrumentation.c:force_instrument_lock_held
+TSAN-0037	Objects/bytesobject.c:striter_len | Objects/bytesobject.c:striter_len
 TSAN-0037	Objects/bytesobject.c:striter_len | Objects/bytesobject.c:striter_next
 TSAN-0037	Objects/bytesobject.c:striter_next | Objects/bytesobject.c:striter_next
 TSAN-0038	Objects/unicodeobject.c:unicode_ascii_iter_next | Objects/unicodeobject.c:unicode_ascii_iter_next
@@ -154,6 +156,7 @@ TSAN-0041	Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_l
 TSAN-0042	Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:_grouper_next
 TSAN-0042	Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:groupby_next
 TSAN-0042	Modules/itertoolsmodule.c:groupby_next | Modules/itertoolsmodule.c:groupby_next
+TSAN-0042	Modules/itertoolsmodule.c:groupby_next | Modules/itertoolsmodule.c:groupby_step
 TSAN-0043	Objects/descrobject.c:descr_get_qualname | Objects/descrobject.c:descr_get_qualname
 TSAN-0044	Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ssize | Modules/_collectionsmodule.c:dequeiter_next_lock_held
 TSAN-0044	Objects/iterobject.c:iter_iternext | Objects/iterobject.c:iter_iternext

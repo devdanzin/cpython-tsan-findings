@@ -5,7 +5,8 @@
   "description": "The bytes iterator (bytesiterobject / striter_next in Objects/bytesobject.c) keeps its cursor in a plain struct field it->it_index and its source in it->it_seq, with no synchronization. When a single bytes iterator is shared across threads, striter_next races two ways: (1) NON-ATOMIC it_index -- it reads it->it_index at the bounds check `if (it->it_index < PyBytes_GET_SIZE(seq))` (:3446) and then reads+increments it in `seq->ob_sval[it->it_index++]` (:3448), so a sibling thread can push it_index past the end between the check and the read -> out-of-bounds read of ob_sval (returns a byte not in the source, or past the buffer); (2) it_seq DOUBLE-DECREF on exhaustion -- two threads that both fall through to `it->it_seq = NULL; Py_DECREF(seq);` DECREF the bytes object twice -> refcount underflow / use-after-free. This is structurally identical to the str-iterator race unicode_ascii_iter_next (cpython#153928, johng): same it_index-non-atomic + it_seq-double-DECREF pair, in the bytes iterator instead of the str iterator. Surfaced by fusil's --tsan shared-iterator op (PR #211, op h: iter(b'A'*4096) shared by reference across workers).",
   "signatures": [
     "Objects/bytesobject.c:striter_next | Objects/bytesobject.c:striter_next",
-    "Objects/bytesobject.c:striter_len | Objects/bytesobject.c:striter_next"
+    "Objects/bytesobject.c:striter_len | Objects/bytesobject.c:striter_next",
+    "Objects/bytesobject.c:striter_len | Objects/bytesobject.c:striter_len"
   ],
   "sites": [
     "Objects/bytesobject.c striter_next:3446 (READ it->it_index: `if (it->it_index < PyBytes_GET_SIZE(seq))` bounds check)",
