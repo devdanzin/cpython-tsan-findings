@@ -1,0 +1,19 @@
+# Set-iterator double-DECREF of si_set -- Objects/setobject.c:1131
+# Build: debug-ft-nojit (CPython 3.16.0a0, main@a1d580430c8), PYTHON_GIL=0, gdb.
+# Two threads exhaust the SAME shared set iterator; both run the exhaustion path
+#   si->si_set = NULL; Py_DECREF(so);   (setobject.c:1130-1131, OUTSIDE the so critical section)
+# -> the set's refcount is dropped twice -> negative refcount / UAF.
+
+# (A) throwaway set -> immediate negative refcount at setiter_iternext:1131
+#8  _PyObject_AssertFailed (obj=<set>) at Objects/object.c:3278
+#9  _Py_NegativeRefcount (op=<set>) at Objects/object.c:275
+#10 _Py_DecRefSharedIsDead (o=<set>) at Objects/object.c:403
+#11 _Py_DecRefSharedDebug (o=<set>, lineno=1131) at Objects/object.c:425
+#12 Py_DECREF (lineno=1131, op=<set>) at ./Include/refcount.h:363
+#13 setiter_iternext (self=<set_iterator>) at Objects/setobject.c:1131      <-- Py_DECREF(so)
+#14 builtin_next at Python/bltinmodule.c:1776
+
+# (B) long-lived shared frozenset (refcount>1) -> silent underflow, caught later:
+#     Python/gc_free_threading.c:999 update_refs: Assertion "refcount >= 0" failed
+#     (object type name: frozenset, object refcount : 1152921504606846947  <- underflowed/deferred),
+#     or a plain SIGSEGV (UAF) in a subsequent iter()/access on the freed set.

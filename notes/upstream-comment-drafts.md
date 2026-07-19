@@ -337,7 +337,7 @@ PR #153983 looks like the correct fix: snapshotting `long_cnt`/`long_step` with 
 
 ## → NEW ISSUE (TSAN-0053) — dict iterator double-free crash (crash face of closed gh-148873)
 
-**Title:** `Crash (double-free / use-after-free): sharing a dict iterator across threads double-DECREFs di_dict under free-threading`
+**Title:** `Sharing a dict iterator across threads double-DECREFs di_dict under free-threading`
 
 **Body:**
 
@@ -345,7 +345,7 @@ PR #153983 looks like the correct fix: snapshotting `long_cnt`/`long_step` with 
 
 ### Bug description
 
-On a free-threaded (`--disable-gil`) build, advancing a single, shared `dict` iterator (`iter({...})`) from multiple threads double-frees the underlying dict and crashes.
+On a free-threaded build, advancing a single, shared `dict` iterator (`iter({...})`) from multiple threads double-frees the underlying dict and crashes.
 
 All three dict iterators (`dict_keyiterator` / `dict_valueiterator` / `dict_itemiterator`) route `next()` through `dictiter_iternext_threadsafe` (`Objects/dictobject.c`). Its exhaustion path drops the iterator's owning reference to the dict:
 
@@ -374,7 +374,7 @@ dictiter_iternextkey(PyObject *self)
 }
 ```
 
-The iterator holds exactly **one** reference to the dict (`di_dict`). Two threads calling `next()` on the same near-exhausted iterator interleave as: both read `d = di->di_dict` (non-NULL), both reach `fail:`, and both run `Py_DECREF(d)`. The second `Py_DECREF` has no matching reference — the dict's refcount underflows / it is freed one owner too early, and a sibling thread still walking `d` (and the dict freelist / keys object) then touches freed memory.
+The iterator holds exactly one reference to the dict (`di_dict`). Two threads calling `next()` on the same near-exhausted iterator interleave as: both read `d = di->di_dict` (non-NULL), both reach `fail:`, and both run `Py_DECREF(d)`. The second `Py_DECREF` has no matching reference — the dict's refcount underflows / it is freed one owner too early, and a sibling thread still walking `d` (and the dict freelist / keys object) then touches freed memory.
 
 This `fail: di->di_dict = NULL; Py_DECREF(d)` pattern predates free-threading (it is correct under the GIL, where only one thread runs the iterator); the lock-free `dictiter_iternext_threadsafe` wrapper carried it over unguarded.
 
@@ -446,12 +446,87 @@ This function was written to be shared across threads, and a crash is explicitly
 - **gh-120496** ("Sequence iterator thread-safety") decided *not* to fix the fact that concurrent iteration can return duplicate/skipped values, and documented it instead (only the `Doc/glossary.rst` note, PR #120685, merged; the code-fix PRs were closed). But the contract agreed on that issue is explicit — @colesbury and @eendebakpt: iterating from multiple threads "**will not crash the interpreter**" (that's the acceptable line; wrong values are OK, crashes are not), and @eendebakpt flagged "the risks of **overflows inside the C code**."
 - **gh-148873** reported this iterator's data-race face and was **closed as a duplicate of gh-120496** — folding a double-free into the value-benign class. That is the gap this issue closes: the same unsynchronized clear-and-DECREF is not benign — it double-frees the dict and crashes (negative refcount / UAF / SIGSEGV) on plain free-threaded builds, which gh-120496 / gh-124397 put squarely on the not-acceptable side.
 
-### CPython versions tested on
-
-- CPython `main` (3.16.0a0), free-threaded `--disable-gil`.
-
-### Operating systems tested on
-
-- Linux.
-
 *(Found by `fusil --tsan`, a ThreadSanitizer fuzzer; crash confirmed by re-running the reproducer without a sanitizer on a plain free-threaded build. Draft and reproducer by Claude Code, minimized and reviewed by hand.)*
+
+---
+
+## → gh-144356 / PR gh-144357 (corroboration) — the set-iterator race is a memory-safety CRASH; the stalled PR fixes it
+
+This isn't only a `__length_hint__` data race — the same `setiter_iternext` path **double-frees the set** and crashes. On a free-threaded build, `setiter_iternext` (`Objects/setobject.c`) reads `so = si->si_set` unguarded, takes only the *set's* critical section around the table scan, and then on exhaustion runs — **outside** that section:
+
+```c
+    if (key == NULL) {
+        si->si_set = NULL;      /* :1130 */
+        Py_DECREF(so);          /* :1131  drop the iterator's one owning ref to the set */
+        return NULL;
+    }
+```
+
+Two threads advancing the **same** set iterator to exhaustion both read the same non-NULL `so` and both `Py_DECREF(so)` → the set's refcount underflows → use-after-free.
+
+Reproducer:
+
+```python
+import threading
+
+NT = 8
+def newit():
+    return iter(set(range(32)))
+cell = [newit()]
+def worker():
+    for _ in range(200_000):
+        it = cell[0]
+        try:
+            next(it)
+        except StopIteration:
+            cell[0] = newit()
+        except Exception:
+            pass
+ts = [threading.Thread(target=worker) for _ in range(NT)]
+for t in ts: t.start()
+for t in ts: t.join()
+```
+
+`PYTHON_GIL=0 ./python repro.py`:
+- **debug free-threaded build** → `Objects/setobject.c:1131: _Py_NegativeRefcount: object has negative ref count`, ~8/8 within seconds.
+- **release `-O0` free-threaded build** (no sanitizer) → SIGSEGV / SIGABRT, core dumped, 6/6.
+
+The realistic form uses a **long-lived shared `frozenset`** (e.g. a module-level constant, refcount > 1): the underflow is silent until the next `gc.collect()` reports `Python/gc_free_threading.c:999 update_refs: Assertion "refcount >= 0" failed` on a `frozenset` with a wild refcount (~2^60), or a later access UAFs.
+
+**PR #144357 fixes this** — widening to `Py_BEGIN_CRITICAL_SECTION2(self, so)` and, under `Py_GIL_DISABLED`, making exhaustion sticky via `si_pos = -1` and removing the `si_set = NULL; Py_DECREF(so)` from `iternext` (dropping the set ref only in dealloc) is exactly what closes the double-DECREF. It'd be good to land it — this is a memory-safety bug, not just a value race. (This is the set sibling of the dict-iterator double-free just filed as gh-154130.)
+
+*(Found by `fusil --tsan`, a ThreadSanitizer fuzzer; crash confirmed by re-running the reproducer without a sanitizer on plain free-threaded builds. Comment + reproducer by Claude Code, reviewed by hand.)*
+
+---
+
+## → gh-154130 (corroboration) — the dict-iterator double-free also hits LONG-LIVED shared dicts/frozendicts (the dangerous face)
+
+Follow-up on the reproducer: the same `dictiter_iternext_threadsafe` double-DECREF is **not** limited to throwaway `iter({...})`. It hits any long-lived shared dict — and, because `iter(frozendict)` returns a `dict_keyiterator`, any shared **`frozendict`** (e.g. a module-level constant) too. On a long-lived object (refcount > 1) the double-DECREF doesn't go immediately negative — the corruption is **silent** until the next `gc.collect()` catches it:
+
+```python
+import threading, gc
+
+fd = frozendict({4:'FREE',1:'LOCAL',3:'GLOBAL_IMPLICIT',2:'GLOBAL_EXPLICIT',5:'CELL'})
+NT = 8
+cell = [iter(fd)]
+def worker(role):
+    for i in range(100_000):
+        it = cell[0]
+        try:
+            next(it)
+        except StopIteration:
+            cell[0] = iter(fd)
+        except Exception:
+            pass
+        if role == 2 and i % 32 == 0:
+            gc.collect()
+ts = [threading.Thread(target=worker, args=(i % 3,)) for i in range(NT)]
+for t in ts: t.start()
+for t in ts: t.join()
+```
+
+`PYTHON_GIL=0 ./python repro.py` → `Python/gc_free_threading.c:1116: validate_gc_objects: Assertion "gc_get_refs(op) >= 0" failed: refcount is too small`, object type `frozendict`, ~8/8 on a debug free-threaded build (SIGSEGV on release).
+
+This is the more concerning form of the bug: a real program that keeps a shared module-level `dict`/`frozendict` and iterates it from several threads silently corrupts its refcount, surfacing as an unrelated GC crash. A ThreadSanitizer fuzzer (`fusil --tsan`) hit it across ~9 unrelated stdlib modules that each expose a module-level `frozendict` (symtable, functools, gettext, json, …) — the module is incidental; the shared frozendict iterator is the cause.
+
+*(Reproducer + note by Claude Code, reviewed by hand.)*
