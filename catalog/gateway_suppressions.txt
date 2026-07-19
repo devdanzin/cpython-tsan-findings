@@ -1,0 +1,51 @@
+# gateway_suppressions.txt -- TSan suppressions for the "un-masking" experiment fleet.
+#
+# These five race families are the "gateways": in the fleet-11/12 multi-race data they account for
+# nearly every FIRST race in a session (see notes/feature-impact.md), so they shadow the rarer tail
+# even under --tsan-no-halt and dominate vehicle counts. They are all either already-filed (count =
+# cpython#153908/#153981) or value-benign-per-strategy (the iterator cursors, gh-124397), i.e. they
+# add nothing new now. Feeding them to TSan's own suppression engine (TSAN_OPTIONS=suppressions=...)
+# stops TSan reporting them AT ALL, so the rarer races become first-class and accumulate vehicles --
+# which should expose the weird-subclass surface (Slice E, flagged shadowed in notes/fleet-09) and
+# raise the vehicle count on rare crashers enough to minimize them.
+#
+# TSan `race:<pat>` matches <pat> as a substring of any function/file in either racing stack and
+# suppresses the whole report -- so the patterns below are chosen to be UNAMBIGUOUS function names
+# (a bare `iter_len` would also hit setiter_len/dictiter_len/... and over-suppress the tail).
+#
+# USE (see fleet/README.md "Un-masking profile"): add to a dedicated fleet's FUSIL_FLAGS
+#   --tsan-suppressions=/path/to/cpython-tsan-findings/catalog/gateway_suppressions.txt
+# fusil feeds it to BOTH TSAN_OPTIONS=suppressions= (the un-masking) and the in-loop deduper.
+# This is DELIBERATELY aggressive and for EXPERIMENT fleets only -- do NOT use it for the standard
+# catalog-building fleet, and note it may also suppress a genuinely-new race that shares a frame
+# with a gateway function (acceptable when hunting the non-gateway tail). Comment out a family to
+# keep it.
+#
+# Tradeoff caveat: framework noise (glibc/tz/subinterp) is still reported by TSan (it is NOT in this
+# file) and filtered at ingest as usual -- this file only removes the five gateways.
+
+# --- itertools.count (cpython#153908 fast-mode fixed; #153981 slow-mode UAF fix in flight) ---
+race:count_repr
+race:count_next
+race:count_nextlong
+
+# --- bytes iterator (TSAN-0037; = the #153928 class for bytes) ---
+race:striter_next
+race:striter_len
+
+# --- str iterator (TSAN-0038 = cpython#153928; ascii + general unicode paths) ---
+race:unicode_ascii_iter_next
+race:unicodeiter_next
+race:unicodeiter_len
+
+# --- struct.iter_unpack iterator (TSAN-0039 = cpython#154013) ---
+race:unpackiter_iternext
+race:unpackiter_len
+
+# --- dict iterator (TSAN-0026; dictiter_iternext* covers threadsafe/key/item variants) ---
+race:dictiter_iternext
+race:dictiter_len
+
+# --- set iterator (TSAN-0040 = cpython#144356; value-benign per gh-124397) ---
+race:setiter_iternext
+race:setiter_len
