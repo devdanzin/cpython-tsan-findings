@@ -332,3 +332,122 @@ for _ in range(3000):
 PR #153983 looks like the correct fix: snapshotting `long_cnt`/`long_step` with `Py_XNewRef` inside `Py_BEGIN_CRITICAL_SECTION(lz)` and formatting from the locals addresses both halves — the data race (the reads are now under the same critical section `count_nextlong` writes under) and the use-after-free (the strong reference keeps `long_cnt` alive across the `repr()`). A bare atomic load of the pointer would have closed the race but not the UAF, so the strong-ref snapshot is the key part.
 
 *(Found by fusil --tsan, a ThreadSanitizer fuzzer; comment + reproducer by Claude Code, reviewed by hand.)*
+
+---
+
+## → NEW ISSUE (TSAN-0053) — dict iterator double-free crash (crash face of closed gh-148873)
+
+**Title:** `Crash (double-free / use-after-free): sharing a dict iterator across threads double-DECREFs di_dict under free-threading`
+
+**Body:**
+
+# Bug report
+
+### Bug description
+
+On a free-threaded (`--disable-gil`) build, advancing a single, shared `dict` iterator (`iter({...})`) from multiple threads double-frees the underlying dict and crashes.
+
+All three dict iterators (`dict_keyiterator` / `dict_valueiterator` / `dict_itemiterator`) route `next()` through `dictiter_iternext_threadsafe` (`Objects/dictobject.c`). Its exhaustion path drops the iterator's owning reference to the dict:
+
+```c
+fail:
+    di->di_dict = NULL;   /* non-atomic clear */
+    Py_DECREF(d);         /* drop the iterator's ONE owning ref to the dict */
+    return -1;
+```
+
+and the caller reads that reference with no lock:
+
+```c
+static PyObject*
+dictiter_iternextkey(PyObject *self)
+{
+    dictiterobject *di = (dictiterobject *)self;
+    PyDictObject *d = di->di_dict;      /* plain read */
+    if (d == NULL)
+        return NULL;
+    PyObject *value;
+    if (dictiter_iternext_threadsafe(d, self, &value, NULL) < 0) {
+        value = NULL;
+    }
+    return value;
+}
+```
+
+The iterator holds exactly **one** reference to the dict (`di_dict`). Two threads calling `next()` on the same near-exhausted iterator interleave as: both read `d = di->di_dict` (non-NULL), both reach `fail:`, and both run `Py_DECREF(d)`. The second `Py_DECREF` has no matching reference — the dict's refcount underflows / it is freed one owner too early, and a sibling thread still walking `d` (and the dict freelist / keys object) then touches freed memory.
+
+This `fail: di->di_dict = NULL; Py_DECREF(d)` pattern predates free-threading (it is correct under the GIL, where only one thread runs the iterator); the lock-free `dictiter_iternext_threadsafe` wrapper carried it over unguarded.
+
+### Reproducer
+
+```python
+import threading
+
+NT = 8
+ITERS = 200_000
+
+def newit():
+    return iter({k: k for k in range(32)})
+
+cell = [newit()]
+
+def worker():
+    for _ in range(ITERS):
+        it = cell[0]
+        try:
+            next(it)                 # dictiter_iternextkey -> dictiter_iternext_threadsafe
+        except StopIteration:
+            cell[0] = newit()        # refill so the fail: (exhaustion) path is hit repeatedly
+        except Exception:
+            pass
+
+threads = [threading.Thread(target=worker) for _ in range(NT)]
+for t in threads: t.start()
+for t in threads: t.join()
+print("done, no crash")
+```
+
+`PYTHON_GIL=0 ./python repro.py` on a free-threaded build:
+
+- **Debug build → SIGABRT within seconds, ~8/8 runs**, with `_Py_NegativeRefcount` on the dict (`Objects/dictobject.c:6159`), plus downstream corruption faces as the freed dict/keys object is reused (`dictkeys_incref` immortal-refcount assert `:484`; `new_dict` type assert `:978`; `clear_freelist` `Objects/object.c:909`; `validate_refcounts` in `gc_free_threading.c`).
+- **Release build (`-O0`, no sanitizer) → SIGSEGV** (use-after-free), or occasionally `Fatal Python error: PyMutex_Unlock: unlocking mutex that is not locked` from the corrupted dict mutex.
+
+So it is neither debug-only nor sanitizer-only. Debug backtrace (the negative-refcount object **is** the dict `d`):
+
+```
+#8  _PyObject_AssertFailed (obj=0x...dict...) at Objects/object.c:3278
+#9  _Py_NegativeRefcount               at Objects/object.c:275
+#12 Py_DECREF                          at ./Include/refcount.h:363
+#13 dictiter_iternext_threadsafe (d=0x...dict...) at Objects/dictobject.c:6159    <-- fail: Py_DECREF(d)
+#14 dictiter_iternextkey                at Objects/dictobject.c:5791
+#15 builtin_next                        at Python/bltinmodule.c:1776
+```
+
+### Suggested fix
+
+Consume the reference atomically so exactly one thread performs the DECREF:
+
+```c
+fail:
+    PyDictObject *old = _Py_atomic_exchange_ptr(&di->di_dict, NULL);
+    if (old != NULL) {
+        Py_DECREF(old);
+    }
+    return -1;
+```
+
+and keep the dict alive for the duration of the lock-free walk (the caller uses `d` and its keys/values across the whole `dictiter_iternext_threadsafe` body) so a sibling that wins the exchange cannot free it mid-iteration — take a strong reference or the dict's critical section for the walk. One fix covers keys/values/items, since all three route through `dictiter_iternext_threadsafe`.
+
+### Relationship to gh-148873
+
+This is the **crash face** of #148873 ("Possible data race in `dictiter_iternext` with free-threading build"), which reported the same `di_dict` race with the same reproducer shape and the same call stack and was **closed without a fix**. That issue flagged the TSan data race on the `di->di_dict` write; this shows the same unsynchronized clear-and-DECREF is not benign — it double-frees the dict and crashes (negative refcount / UAF / SIGSEGV) on plain free-threaded builds. Per the iterator free-threading strategy (gh-124397), concurrent iteration may return duplicate/skipped values or raise, but it must not crash; this crashes.
+
+### CPython versions tested on
+
+- CPython `main` (3.16.0a0), free-threaded `--disable-gil`.
+
+### Operating systems tested on
+
+- Linux.
+
+*(Found by `fusil --tsan`, a ThreadSanitizer fuzzer; crash confirmed by re-running the reproducer without a sanitizer on a plain free-threaded build. Draft and reproducer by Claude Code, minimized and reviewed by hand.)*

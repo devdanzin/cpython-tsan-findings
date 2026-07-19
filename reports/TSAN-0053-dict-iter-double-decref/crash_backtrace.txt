@@ -1,0 +1,24 @@
+# Crash: _Py_NegativeRefcount on the dict inside dictiter_iternext_threadsafe fail: path
+# Build: debug-ft-nojit (CPython 3.16.0a0, main@a1d580430c8), PYTHON_GIL=0, under gdb.
+# The negative-refcount object (obj=0x2000382d0f0) IS the dict d passed to
+# dictiter_iternext_threadsafe -- the fail: Py_DECREF(d) dropped it one too many times.
+
+Thread ("tsan_2_1") received signal SIGABRT (_Py_NegativeRefcount assertion):
+
+#3  0x00007ffff7c45b7e in __GI_raise (sig=sig@entry=6) at ../sysdeps/posix/raise.c:26
+#4  0x00007ffff7c288ec in __GI_abort () at ./stdlib/abort.c:77
+#5  0x00005555559529ad in fatal_error_exit (status=3916476, status@entry=-1) at Python/pylifecycle.c:3517
+#6  0x0000555555952863 in fatal_error (fd=<optimized out>, header=header@entry=1, prefix=prefix@entry=0x555555ac0208 "_PyObject_AssertFailed", msg=msg@entry=0x555555ac0208 "_PyObject_AssertFailed", status=status@entry=-1) at Python/pylifecycle.c:3742
+#7  0x00005555559505d4 in _Py_FatalErrorFunc (func=0x555555ac0208 "_PyObject_AssertFailed", msg=0x555555ac0208 "_PyObject_AssertFailed") at Python/pylifecycle.c:3765
+#8  0x00005555555f0a41 in _PyObject_AssertFailed (obj=0x2000382d0f0, expr=expr@entry=0x0, msg=<optimized out>, file=<optimized out>, line=<optimized out>, function=<optimized out>) at Objects/object.c:3278
+#9  0x0000555555742986 in _Py_NegativeRefcount (filename=0x7ffff7ca648c <__GI___pthread_kill+284> "A\211\300A\367\330=", lineno=22, op=0x3bc2bc, op@entry=0x2000382d0f0) at Objects/object.c:275
+#10 _Py_DecRefSharedIsDead (o=0x3bc2bc, o@entry=0x2000382d0f0, filename=<optimized out>, lineno=<optimized out>) at Objects/object.c:403
+#11 _Py_DecRefSharedDebug (o=0x3bc2bc, o@entry=0x2000382d0f0, filename=0x7ffff7ca648c <__GI___pthread_kill+284> "A\211\300A\367\330=", lineno=22, lineno@entry=6159) at Objects/object.c:425
+#12 0x000055555572a55b in Py_DECREF (lineno=6159, op=0x2000382d0f0, filename=<optimized out>) at ./Include/refcount.h:363
+#13 dictiter_iternext_threadsafe (d=d@entry=0x2000382d0f0, self=self@entry=0x2002c1301d0, out_key=out_key@entry=0x7fffcaffb868, out_value=out_value@entry=0x0) at Objects/dictobject.c:6159
+#14 0x000055555571fef8 in dictiter_iternextkey (self=0x2002c1301d0) at Objects/dictobject.c:5791
+#15 0x00005555558704ff in builtin_next (self=0x200023303d0, args=0x7fffcaffb8d8, nargs=1) at Python/bltinmodule.c:1776
+#16 0x00005555558772af in _Py_BuiltinCallFast_StackRef (callable=callable@entry=..., arguments=arguments@entry=0x7ffff4cdf290, total_args=total_args@entry=1) at Python/ceval.c:817
+#17 0x000055555588460a in _PyEval_EvalFrameDefault (tstate=0x2000026d010, frame=<optimized out>, throwflag=0) at Python/generated_cases.c.h:2510
+#18 0x00005555558765a9 in _PyEval_EvalFrame (tstate=0x2000026d010, frame=0x7ffff4cdf128, throwflag=0) at ./Include/internal/pycore_ceval.h:122
+#19 _PyEval_Vector (tstate=0x2000026d010, func=0x20002a69d90, locals=0x0, args=0x7fffcaffca80, argcount=1, kwnames=0x0) at Python/ceval.c:2172

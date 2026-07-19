@@ -174,6 +174,22 @@ only-via-multi). Full triage in `notes/fleet-12-triage.md`.
 | **TSAN-0048** | `csv.reader`: `Reader_iternext` writes `self->line_num` (`_csv.c`) vs a concurrent `reader.line_num` member read | **NEW but value-benign** (stale counter, no crash). Reproduced; appears unfiled. Low priority — not proposing a filing |
 | folds/flags | `_PyLong_DigitCount\|_PyMem_DebugRawFree` → **TSAN-0006**. Left uncataloged: count-cascade SEGV (pc…4b6c) + dict-iter `atomic\|atomic` artifact (both fleet-11 knowns); an unsymbolized `_lsprof` SEGV; and **`sock_accept_impl\|sock_finalize`** — a TSan **fd-close-while-in-use** race (fd closed by socket dealloc vs a concurrent `accept4`). **INVESTIGATED: non-reproducible** (0/24 vehicle replays, 3 synthetic repros failed) → shrinkray N/A; likely a fuzzer timing artifact, not fileable | 1 fold + 4 documented leftovers |
 
+## Fleet 15 addition (TSAN-0053) — first **un-masking** fleet (gateway suppressions)
+
+`fusil-tsan_fleet_15` runs the **un-masking profile** (`--tsan-no-halt` +
+`--tsan-suppressions=gateway_suppressions.txt`, which TSan-suppresses the gateway iterator/`count`
+races that otherwise dominate). The very first fileable hit is a **crash the gateway was hiding** —
+exactly the design intent. It lands as `…-tsanNOPARSE` because it is an abort/segfault, **not** a TSan
+data-race report.
+
+| id | what | disposition |
+|----|------|-------------|
+| **TSAN-0053** | plain `dict` iterator: `dictiter_iternext_threadsafe`'s exhaustion path `fail: di->di_dict = NULL; Py_DECREF(d);` (`dictobject.c:6158-6159`) non-atomically drops the iterator's **one** owning ref to the dict, while the caller `dictiter_iternextkey:5791` reads `d = di->di_dict` unlocked → two `next()` threads both `Py_DECREF(d)` → **double-free / UAF / negative refcount** | **NEW crash, reproduced, FILEABLE (awaiting go-ahead).** ~8/8 SIGABRT (`_Py_NegativeRefcount` on the dict, `dictobject.c:6159`) on `debug-ft-nojit`; **SIGSEGV** on `release-ft-nojit-o0`. The **crash face** of the *closed-unfixed* data race **cpython#148873** (same iterator, same repro shape, same call stack) — same escalation as TSAN-0045→#154043. Distinct from TSAN-0026 (the value-benign `ma_values` race in the same function). Covers keys/values/items (all route through `dictiter_iternext_threadsafe`). `_colorize` target was incidental (racing object = a plain `iter({...})`) |
+
+**Why the un-masking fleet found it:** the value-benign dict-iterator data race is a suppressed gateway
+(`race:dictiter_iternext`). With it suppressed, the rarer double-DECREF **crash** surfaced instead —
+concrete proof the un-masking profile exposes tail crashers the standard fleet's first-race gateways bury.
+
 ## Cross-check
 
 None of these overlap **#149816** ("22 free-threading race conditions") — that umbrella covers
