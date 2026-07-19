@@ -303,3 +303,45 @@ CPython `main` (3.16.0a0), free-threaded `--disable-gil` build.
 Linux
 
 *(Found by `fusil --tsan`, a ThreadSanitizer fuzzer. Draft and reproducer by Claude Code, minimized and reviewed by hand.)*
+
+---
+
+## → gh-153981 (corroboration) — count slow-mode UAF + endorse PR #153983
+
+Confirming this independently. `fusil --tsan` (a ThreadSanitizer fuzzer) surfaced the same slow-mode
+use-after-free, which I'd reported as a follow-up on the fast-mode issue (gh-153908) just before
+finding this issue and your PR.
+
+The mechanism matches: in slow (big-int) mode `count_repr` borrows `lz->long_cnt` and `repr()`s it
+(the `if (lz->long_cnt == NULL)` mode check + `PyUnicode_FromFormat("%R", …, lz->long_cnt)`) with no
+synchronization, while `count_nextlong` does `lz->long_cnt = stepped_up` under
+`Py_BEGIN_CRITICAL_SECTION(lz)` and returns the old value — which the `next()` caller then DECREFs,
+so `count_repr` can `repr()` a freed object. TSan flags it as a data race on `lz->long_cnt`
+(`count_nextlong` vs `count_repr`), and when the free wins it's a `SEGV` in `PyObject_Repr` (matching
+your `SEGV object.c:766`). Reproduced deterministically on a free-threaded `--with-thread-sanitizer`
+build of current `main`; fast-mode `count()` is clean.
+
+Repro:
+
+```python
+import itertools, threading
+NT = 8
+for _ in range(3000):
+    it = itertools.count(10**18, 2)          # big-int -> slow (long_cnt) mode
+    bar = threading.Barrier(NT)
+    def work(advance, it=it, bar=bar):
+        bar.wait()
+        for _ in range(400):
+            next(it) if advance else repr(it)
+    ts = [threading.Thread(target=work, args=(i % 2 == 0,)) for i in range(NT)]
+    for t in ts: t.start()
+    for t in ts: t.join()
+```
+
+PR #153983 looks like the correct fix: snapshotting `long_cnt`/`long_step` with `Py_XNewRef` inside
+`Py_BEGIN_CRITICAL_SECTION(lz)` and formatting from the locals addresses both halves — the data race
+(the reads are now under the same critical section `count_nextlong` writes under) and the
+use-after-free (the strong reference keeps `long_cnt` alive across the `repr()`). A bare atomic load
+of the pointer would have closed the race but not the UAF, so the strong-ref snapshot is the key part.
+
+*(Found by fusil --tsan, a ThreadSanitizer fuzzer; comment + reproducer by Claude Code, reviewed by hand.)*
