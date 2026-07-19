@@ -1,0 +1,30 @@
+{
+  "id": "TSAN-0047",
+  "slug": "locale-localeconv-thread-unsafe",
+  "title": "locale.localeconv(): concurrent calls race (heap-use-after-free) via the non-thread-safe C localeconv() static struct -- = cpython#127081 (thread-unsafe libc functions)",
+  "description": "locale.localeconv() (Modules/_localemodule.c: _locale_localeconv_impl -> locale_decode_monetary) calls the C library localeconv(), which returns a pointer to a SINGLE static `struct lconv`, then strdup()s / decodes its string fields (mon_decimal_point, currency_symbol, ...). C localeconv() is not thread-safe (POSIX: the returned struct may be overwritten by a subsequent call in another thread). Two threads in localeconv() concurrently race on the shared static lconv fields -- TSan reports a heap-use-after-free (one thread's _PyMem_Strdup reads a C string that another thread's strdup()/localeconv() overwrote/freed). CPython does not lock around the C localeconv() + field reads. This is an instance of cpython#127081 ('Thread-unsafe libc functions').",
+  "signatures": [
+    "heap-use-after-free Objects/obmalloc.c:_PyMem_Strdup"
+  ],
+  "sites": [
+    "Objects/obmalloc.c _PyMem_Strdup:1331 (READ a C string from the static lconv, via locale_decode_monetary <- _locale_localeconv_impl)",
+    "libc strdup / localeconv() (WRITE/overwrite the static `struct lconv` fields in another thread's localeconv() call)"
+  ],
+  "race_kind": "thread-unsafe libc call: concurrent localeconv() calls race the single static `struct lconv` the C library returns -> a use-after-free of its string fields (read vs the overwriting strdup). CPython wraps the non-thread-safe libc localeconv() without a lock.",
+  "shared_state": "the C library's static `struct lconv` (returned by localeconv()) and its strdup'd string fields",
+  "severity": "moderate (memory-unsafe: TSan reports heap-use-after-free), but the root cause is libc's non-thread-safe localeconv(), and the mitigation is CPython-side locking. Filed upstream as cpython#127081 (thread-unsafe libc functions).",
+  "reproduced": false,
+  "repro_reliability": "Fleet-12 surfaced it (2 veh, via locale.localeconv()). Not reproduced in isolation this session -- triggering it needs a locale whose monetary fields are non-empty (locale-dependent); the C-locale default has empty monetary strings so nothing is strdup'd. The fleet vehicles ran under a locale with monetary data.",
+  "suggested_fix": "Lock around the C localeconv() call + the reads of its result in _locale_localeconv_impl (a module-level or interpreter-level lock), or snapshot the struct under the lock before decoding. This is the CPython-side half of cpython#127081 (the libc function itself cannot be made thread-safe portably).",
+  "status": "reported",
+  "upstream_issue": 127081,
+  "related_issues": ["cpython#127081"],
+  "prior_art": "cpython#127081 ('Thread-unsafe libc functions', OPEN) is the umbrella for CPython wrappers of non-thread-safe libc functions (localeconv, and others). This localeconv UAF is an instance.",
+  "found_date": "2026-07-19",
+  "found_in": "fusil-tsan_fleet_12",
+  "vehicles": 2,
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build main@a1d580430c8)",
+  "related": "Thread-unsafe-libc class (cpython#127081), distinct from the CPython-object races. Surfaced via --tsan-no-halt (fleet-12).",
+  "notes": "Known (= cpython#127081). Cataloged for dedup. Memory-unsafe (UAF) but libc-rooted; the fix is CPython-side locking. Not a new filing. NOTE: the signature `heap-use-after-free Objects/obmalloc.c:_PyMem_Strdup` is somewhat generic -- verify locale_decode_monetary / localeconv is on the stack before trusting this label."
+}

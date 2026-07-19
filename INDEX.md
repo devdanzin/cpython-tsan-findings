@@ -161,6 +161,19 @@ triage + stats in `notes/fleet-11-triage.md`.
 | **TSAN-0044** | generic sequence iterator (`iter(obj)` seqiter, `iterobject.c:72/100`) + `deque` iterator: non-atomic `it_index`/cursor | **= gh-120496 (CLOSED), value-benign.** `PySequence_GetItem` is bounds-checked → duplicate/skip, not OOB; acceptable per rhettinger's iterator strategy gh-124397. **Not fileable** — cataloged for dedup. Notable as proof `--tsan-no-halt` unmasks races halt=1 hid |
 | folds | `multibytecodec StreamReader.reset` → **TSAN-0001**; count faces `long_alloc\|long_to_decimal` + `count_repr\|count_repr` + cascade `SEGV PyObject_Repr` → **TSAN-0006**; `unpackiter_len\|unpackiter_len` → **TSAN-0039**; `_lsprof Stop\|Stop` → **TSAN-0008**; `clear_extra\|element_bool` → **TSAN-0041**. tracemalloc allocator-swap races → **suppressed** | 5 folded + noise suppressed |
 
+## Fleet 12 additions (TSAN-0046…0048) — second `--tsan-no-halt` fleet
+
+`fusil-tsan_fleet_12` (4 inst, **270 crash dirs**, 2026-07-19, 107 sidecars). **0 new fileable races
+— coverage converging.** 392 race instances / 70 distinct captured vs 51 first-only (122 masked, 19
+only-via-multi). Full triage in `notes/fleet-12-triage.md`.
+
+| id | what races | disposition |
+|----|-----------|-------------|
+| **TSAN-0046** | `io.IncrementalNewlineDecoder`: `.reset()` writes `self->seennl` (`textio.c:630`) unlocked vs `.newlines` reading it | **= cpython#144777 (CLOSED).** Value-benign; reproduced. Cataloged for dedup |
+| **TSAN-0047** | `locale.localeconv()`: concurrent calls race the non-thread-safe C `localeconv()` static `struct lconv` → **heap-use-after-free** of its strdup'd fields | **= cpython#127081 (OPEN, "Thread-unsafe libc functions").** Memory-unsafe but libc-rooted; fix is CPython-side locking. Cataloged for dedup |
+| **TSAN-0048** | `csv.reader`: `Reader_iternext` writes `self->line_num` (`_csv.c`) vs a concurrent `reader.line_num` member read | **NEW but value-benign** (stale counter, no crash). Reproduced; appears unfiled. Low priority — not proposing a filing |
+| folds/flags | `_PyLong_DigitCount\|_PyMem_DebugRawFree` → **TSAN-0006**. Left uncataloged: count-cascade SEGV (pc…4b6c) + dict-iter `atomic\|atomic` artifact (both fleet-11 knowns); an unsymbolized `_lsprof` SEGV; and **`sock_accept_impl\|sock_finalize`** — a socket finalized/dealloc'd while another thread is mid-`accept()`, **flagged for deeper analysis** (possible FT lifetime bug or fuzzer artifact) | 1 fold + 4 documented leftovers |
+
 ## Cross-check
 
 None of these overlap **#149816** ("22 free-threading race conditions") — that umbrella covers

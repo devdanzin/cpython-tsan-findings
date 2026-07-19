@@ -1,0 +1,31 @@
+{
+  "id": "TSAN-0046",
+  "slug": "io-newline-decoder-state",
+  "title": "io.IncrementalNewlineDecoder: .reset() writes self->seennl (textio.c) with no lock vs .newlines reading it -- = cpython#144777 (CLOSED)",
+  "description": "The _io.IncrementalNewlineDecoder keeps its seen-newline bitmask in a plain self->seennl field. _io_IncrementalNewlineDecoder_reset_impl (Modules/_io/textio.c:630) writes self->seennl = 0 with no critical section, while the `newlines` getter (incrementalnewlinedecoder_newlines_get, textio.c:644) reads self->seennl, and decode() reads/updates it (:389/:511). A shared decoder driven by .reset()/.decode() from one thread and .newlines from another is a data race on seennl. This IS cpython#144777 ('Possible data race in _io_IncrementalNewlineDecoder_reset_impl in textio.c', CLOSED).",
+  "signatures": [
+    "Modules/_io/textio.c:_io_IncrementalNewlineDecoder_reset_impl | Modules/_io/textio.c:incrementalnewlinedecoder_newlines_get"
+  ],
+  "sites": [
+    "Modules/_io/textio.c _io_IncrementalNewlineDecoder_reset_impl:630 (WRITE self->seennl = 0, no critical section)",
+    "Modules/_io/textio.c incrementalnewlinedecoder_newlines_get:644 (READ self->seennl for the .newlines property)"
+  ],
+  "race_kind": "unsynchronized incremental-decoder state: a shared _io.IncrementalNewlineDecoder's seennl bitmask read/written across threads with no per-object critical section. Same class as the cjkcodecs incremental codec state (TSAN-0001).",
+  "shared_state": "nldecoder_object.seennl (seen-newline bitmask) and pendingcr on a single shared IncrementalNewlineDecoder",
+  "severity": "low (value-benign: a stale/mixed seennl bitmask -> a wrong .newlines report or a mis-split \\r\\n boundary under concurrency; no memory unsafety). Already filed as cpython#144777 (CLOSED).",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads sharing one io.IncrementalNewlineDecoder, half .reset() half reading .newlines) exits 66 on debug-ft-nojit-tsan. Fleet-12 surfaced it (1 veh).",
+  "suggested_fix": "Take the decoder's per-object critical section (Py_BEGIN_CRITICAL_SECTION(self)) around the seennl/pendingcr read-modify-writes in reset/decode and the newlines getter, or make seennl atomic. (See cpython#144777.)",
+  "status": "reported",
+  "upstream_issue": 144777,
+  "related_issues": ["cpython#144777"],
+  "prior_art": "cpython#144777 ('Possible data race in _io_IncrementalNewlineDecoder_reset_impl in textio.c', CLOSED) is exactly this race. Our build still reproduces it (either closed-as-wontfix, or the build predates a fix).",
+  "found_date": "2026-07-19",
+  "found_in": "fusil-tsan_fleet_12",
+  "vehicles": 1,
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build main@a1d580430c8)",
+  "related": "Incremental-decoder-state class, like TSAN-0001 (cjkcodecs MultibyteIncrementalDecoder / MultibyteStreamReader). Surfaced via --tsan-no-halt (fleet-12).",
+  "notes": "Known (= cpython#144777, CLOSED). Cataloged for dedup. Value-benign. Not a new filing."
+}

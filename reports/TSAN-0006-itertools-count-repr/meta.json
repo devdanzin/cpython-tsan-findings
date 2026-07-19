@@ -10,6 +10,7 @@
     "Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawFree",
     "Objects/longobject.c:long_to_decimal_string_internal | Objects/obmalloc.c:_PyMem_DebugRawFree",
     "Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawAlloc",
+    "Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawFree",
     "Objects/longobject.c:long_alloc | Objects/longobject.c:long_to_decimal_string_internal",
     "Objects/longobject.c:long_to_decimal_string_internal | Objects/longobject.c:x_add",
     "Modules/itertoolsmodule.c:count_repr | Modules/itertoolsmodule.c:count_repr",

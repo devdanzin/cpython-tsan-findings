@@ -9,6 +9,7 @@ TSAN-0005	Modules/_decimal/_decimal.c:dec_hash | Modules/_decimal/_decimal.c:dec
 TSAN-0006	? | Modules/itertoolsmodule.c:count_nextlong
 TSAN-0006	Include/cpython/pyatomic_gcc.h:_Py_atomic_compare_exchange_ssize | Modules/itertoolsmodule.c:count_repr
 TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawAlloc
+TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawAlloc
 TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0006	Modules/itertoolsmodule.c:count_nextlong | Modules/itertoolsmodule.c:count_repr
@@ -158,3 +159,6 @@ TSAN-0044	Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ssize | Modules/_collec
 TSAN-0044	Objects/iterobject.c:iter_iternext | Objects/iterobject.c:iter_iternext
 TSAN-0044	Objects/iterobject.c:iter_iternext | Objects/iterobject.c:iter_len
 TSAN-0045	Objects/genericaliasobject.c:ga_iternext | Objects/genericaliasobject.c:ga_iternext
+TSAN-0046	Modules/_io/textio.c:_io_IncrementalNewlineDecoder_reset_impl | Modules/_io/textio.c:incrementalnewlinedecoder_newlines_get
+TSAN-0047	heap-use-after-free Objects/obmalloc.c:_PyMem_Strdup
+TSAN-0048	Include/cpython/pyatomic_gcc.h:_Py_atomic_load_uint64_relaxed | Modules/_csv.c:Reader_iternext_lock_held

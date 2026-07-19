@@ -1,0 +1,31 @@
+{
+  "id": "TSAN-0048",
+  "slug": "csv-reader-line-num",
+  "title": "csv.reader: Reader_iternext advances self->line_num (Modules/_csv.c) with no lock vs a concurrent read of reader.line_num -> value-benign data race",
+  "description": "The _csv reader keeps its line counter in a plain self->line_num field (a T_ULONG member exposed as reader.line_num). Reader_iternext_lock_held (Modules/_csv.c:974) writes self->line_num while advancing, and Reader_iternext resets it (:1103, self->line_num = 0). A concurrent read of reader.line_num (via the member descriptor / PyMember_GetOne) reads it non-atomically -> data race on the counter. The iternext takes the reader's lock ('_lock_held') for the row parse, but the line_num member read is unsynchronized.",
+  "signatures": [
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_uint64_relaxed | Modules/_csv.c:Reader_iternext_lock_held"
+  ],
+  "sites": [
+    "Modules/_csv.c Reader_iternext_lock_held:974 (WRITE self->line_num while parsing a row)",
+    "Python/structmember.c PyMember_GetOne (READ self->line_num as reader.line_num, via the member descriptor -- the atomic-load frame is the member read of the T_ULONG)"
+  ],
+  "race_kind": "shared-object counter: non-atomic read/write of csv reader's line_num across threads. The row-parse is under the reader's critical section but the line_num member read is not. Value-benign.",
+  "shared_state": "ReaderObj.line_num (T_ULONG line counter) on a shared csv.reader",
+  "severity": "low (value-benign): a stale/torn reader.line_num read under concurrency; no memory unsafety. Sharing one csv.reader across threads is unusual.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads sharing one csv.reader, half next() half reading .line_num) exits 66 on debug-ft-nojit-tsan. Fleet-12 surfaced it (2 veh).",
+  "suggested_fix": "Read/write line_num atomically (FT_ATOMIC_LOAD/STORE) or expose it under the reader's critical section. Low priority -- value-benign and unusual sharing.",
+  "status": "confirmed",
+  "upstream_issue": null,
+  "related_issues": [],
+  "prior_art": "gh api search for csv reader / line_num free-threading found no existing issue -> appears unfiled. Value-benign, so a low-priority candidate at most.",
+  "found_date": "2026-07-19",
+  "found_in": "fusil-tsan_fleet_12",
+  "vehicles": 2,
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build main@a1d580430c8, current main)",
+  "related": "Shared-object member-counter race, akin to the value-benign iterator cursors (TSAN-0040/0044). Surfaced via --tsan-no-halt (fleet-12).",
+  "notes": "NEW / appears unfiled, but VALUE-BENIGN (a stale line_num counter, no crash) -> low priority per the shared-object-race calculus. Cataloged for dedup; fileable only if the maintainers want member-read atomicity. Not proposing a filing."
+}
