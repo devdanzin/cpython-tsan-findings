@@ -438,9 +438,13 @@ fail:
 
 and keep the dict alive for the duration of the lock-free walk (the caller uses `d` and its keys/values across the whole `dictiter_iternext_threadsafe` body) so a sibling that wins the exchange cannot free it mid-iteration — take a strong reference or the dict's critical section for the walk. One fix covers keys/values/items, since all three route through `dictiter_iternext_threadsafe`.
 
-### Relationship to gh-148873
+### Why this is not the documented value-benign iterator race
 
-This is the **crash face** of #148873 ("Possible data race in `dictiter_iternext` with free-threading build"), which reported the same `di_dict` race with the same reproducer shape and the same call stack and was **closed without a fix**. That issue flagged the TSan data race on the `di->di_dict` write; this shows the same unsynchronized clear-and-DECREF is not benign — it double-frees the dict and crashes (negative refcount / UAF / SIGSEGV) on plain free-threaded builds. Per the iterator free-threading strategy (gh-124397), concurrent iteration may return duplicate/skipped values or raise, but it must not crash; this crashes.
+This function was written to be shared across threads, and a crash is explicitly out of contract:
+
+- The lock-free dict iterator `dictiter_iternext_threadsafe` was added by **gh-112075 / PR #115108** ("Iterating a dict shouldn't require locks"), under the umbrella **gh-112075** ("Make `dict` objects thread-safe in `--disable-gil` builds"). PR #115108 states it "[handles] races against the dict as well as **allowing the iterator to be used from multiple threads simultaneously**." It made the *value read* safe (`_Py_TryIncrefCompare` / `acquire_key_value`) but carried the old `fail: di->di_dict = NULL; Py_DECREF(d)` exhaustion path in unchanged — hence this double-free.
+- **gh-120496** ("Sequence iterator thread-safety") decided *not* to fix the fact that concurrent iteration can return duplicate/skipped values, and documented it instead (only the `Doc/glossary.rst` note, PR #120685, merged; the code-fix PRs were closed). But the contract agreed on that issue is explicit — @colesbury and @eendebakpt: iterating from multiple threads "**will not crash the interpreter**" (that's the acceptable line; wrong values are OK, crashes are not), and @eendebakpt flagged "the risks of **overflows inside the C code**."
+- **gh-148873** reported this iterator's data-race face and was **closed as a duplicate of gh-120496** — folding a double-free into the value-benign class. That is the gap this issue closes: the same unsynchronized clear-and-DECREF is not benign — it double-frees the dict and crashes (negative refcount / UAF / SIGSEGV) on plain free-threaded builds, which gh-120496 / gh-124397 put squarely on the not-acceptable side.
 
 ### CPython versions tested on
 
