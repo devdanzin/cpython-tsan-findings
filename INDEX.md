@@ -130,6 +130,22 @@ known races deduped** + 24 suppressed + 26 noparse, only **2 new signature group
 | TSAN-0033 | 8 more `validate_refcounts` / `_asyncio.Task` vehicles | independent confirmation on a fresh fleet |
 | TSAN-0031 | 1 vehicle | independent confirmation of the fleet-03 TreeBuilder finding |
 
+## Fleet 10 additions (TSAN-0040…0042)
+
+`fusil-tsan_fleet_10` (4 inst, **170 crash dirs**, 2026-07-18). First fleet on the matrix rebuilt
+onto main `a1d580430c8` (with the count fast-mode fix #153917); still `--tsan-weird-subclasses`,
+still `halt_on_error=1`. Removing the count fast-mode shadow surfaced the cross-session diversity:
+**9 new signature groups → 3 new races (reproduced in isolation, exit 66) + 5 folded faces**.
+`known_races.tsv` 132 → 145 sigs / 36 → 39 races; re-ingests 0 new. Full triage in
+`notes/fleet-10-triage.md`.
+
+| id | what races | disposition |
+|----|-----------|-------------|
+| **TSAN-0041** | `_elementtree`: `element_attrib_getter` (`.attrib`) etc. do an unsynchronized `if (!self->extra) create_extra(...)`, and `create_extra` (`_elementtree.c:274`) writes `self->extra = PyMem_Malloc(...)` with no critical section → concurrent first-touch of a shared Element write/write-races `self->extra` (+ leak), and racing readers (`element_length`) / `clear_extra` | **NEW, reproduced.** Lazy-init-without-lock; a realistically-shared object (parsed tree across worker threads). **Highest-value fleet-10 find.** Faces `create_extra\|element_length` (2) + `clear_extra\|create_extra` (1). Fix: per-object critical section (+ re-check) around every lazy `create_extra` call site. Upstream candidate (awaiting go-ahead) |
+| **TSAN-0040** | `set` iterator: `setiter_len` (`setobject.c:1063`, via `operator.length_hint`) reads the shared iterator's countdown/index while `setiter_iternext` advances it | **NEW, reproduced.** The `set` sibling of the builtin-iterator cursor family (TSAN-0037 bytes / TSAN-0038 str / TSAN-0039 struct / TSAN-0026 dict). 6 veh (fleet headline). Fix: atomic cursor or per-iterator critical section. Umbrella #153852 candidate |
+| **TSAN-0042** | `itertools.groupby`: a shared groupby's `groupby_next` (`itertoolsmodule.c:~537`) mutates `gbo->currkey/currvalue/tgtkey/currgrouper` with no per-object lock (faces `groupby_next\|groupby_next`, `_grouper_create\|groupby_next`) | **NEW, reproduced.** Shared stateful-itertools-object class (like count/TSAN-0006). 1 veh. Fix: per-object critical section over the advance. Upstream candidate |
+| folds | `dictiter…\|dictiter_iternextkey` → **TSAN-0026**; `unicodeiter_next\|unicodeiter_next` + `unicodeiter_len\|unicodeiter_next` → **TSAN-0038** (general non-ASCII unicode iterator; same #153928); `_decimal_Context_clear_traps_impl\|type_call` → **TSAN-0019**; `_PyLong_DigitCount\|_PyMem_DebugRawAlloc` → **TSAN-0006** (count slow-mode UAF residual of #153917, count_repr on stack) | 5 new faces of known races, folded |
+
 ## Cross-check
 
 None of these overlap **#149816** ("22 free-threading race conditions") — that umbrella covers
