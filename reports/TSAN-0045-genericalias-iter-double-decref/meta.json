@@ -11,10 +11,12 @@
   ],
   "race_kind": "shared one-shot iterator: unsynchronized read + Py_SETREF(gi->obj, NULL) across threads -> data race on gi->obj and a double-DECREF / use-after-free (refcount underflow). Memory-unsafe (crosses the gh-124397 'must not crash' bar), unlike the value-benign cursor iterators.",
   "shared_state": "gaiterobject.obj (the borrowed-then-cleared reference to the source GenericAlias) on a single shared ga iterator",
-  "severity": "moderate (memory-unsafe: double-DECREF of gi->obj's referent -> refcount underflow / UAF), but LOW real-world priority -- sharing a one-shot iter(list[int]) across threads is very unusual. Free-threaded build only.",
+  "severity": "HIGH (CRASHES): the double-DECREF/UAF of gi->obj SEGFAULTS -- not just a TSan warning. repro.py SIGSEGVs at ga_iternext (genericaliasobject.c:952, the Py_SETREF) 5/5 runs on BOTH debug-ft-nojit AND release-ft-nojit-o0 (plain free-threaded builds, no sanitizer), near-instantly. This crosses the gh-124397 'must not crash' bar unambiguously. Real-world likelihood is still low (sharing a one-shot iter(list[int]) across threads is unusual), but it is a hard crash reachable from pure Python. Free-threaded build only.",
   "reproduced": true,
+  "crashes": true,
   "repro": "repro.py",
-  "repro_reliability": "deterministic: repro.py (8 threads each next() on ONE shared iter(list[int]), 4000 rounds) exits 66 on debug-ft-nojit-tsan; also reproduced on release-ft-nojit-tsan. Fleet-11 surfaced it (1 veh).",
+  "crash_backtrace": "crash_backtrace.txt",
+  "repro_reliability": "TWO ways: (1) under TSan (debug-ft-nojit-tsan / release-ft-nojit-tsan) repro.py exits 66 (data race). (2) On a PLAIN free-threaded build (debug-ft-nojit AND release-ft-nojit-o0, no sanitizer) repro.py SIGSEGVs (exit 139) deterministically -- 5/5 runs, within the first few rounds -- with the crash at ga_iternext:952 (Py_SETREF(gi->obj, NULL)); backtrace in crash_backtrace.txt. 16 threads sharing one iter(list[int]). Fleet-11 surfaced the TSan face (1 veh).",
   "suggested_fix": "Take the ga iterator's per-object critical section (Py_BEGIN_CRITICAL_SECTION(gi)) around the read of gi->obj and the Py_SETREF, or clear gi->obj via an atomic exchange (`PyObject *obj = _Py_atomic_exchange_ptr(&gi->obj, NULL); if (!obj) return StopIteration; ...`) so exactly one thread consumes it.",
   "status": "drafted",
   "upstream_issue": null,
@@ -27,5 +29,5 @@
   "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer); also reproduced on release-ft-nojit-tsan -> NOT a debug-only artifact",
   "confirmed_unfixed_on": "3.16.0a0 (fleet build main@a1d580430c8, current main)",
   "related": "Memory-unsafe shared-iterator exhaustion (double-DECREF), like the bytes/str it_seq exhaustion (TSAN-0037/0038) but a one-shot iterator. Distinct from the value-benign cursor iterators (TSAN-0044/0040) and from gh-153298 (__parameters__). Surfaced only via --tsan-no-halt (fleet-11).",
-  "notes": "Appears unfiled for the ITERATOR race (gh-153298 is the sibling __parameters__ race). Memory-unsafe (double-DECREF) so it crosses the gh-124397 bar, but very-low real-world priority (who shares a one-shot iter(list[int])?). Fileable-if-desired; awaiting maintainer go-ahead. Reproduced on debug + release TSan builds."
+  "notes": "GENUINELY UNFILED (gh api search for ga_iternext / GenericAlias-iterator-crash empty; gh-153298 is the sibling __parameters__ lazy-init, a DIFFERENT race). STRONG FILEABLE CANDIDATE now that it is confirmed to CRASH (SIGSEGV, not just a TSan warning) on plain free-threaded builds. Per gh-124397 the iterator FT bar is 'must not crash' -- this crashes -> clearly in scope regardless of how unusual the sharing is. Awaiting maintainer go-ahead (outward-facing). Found via --tsan-no-halt (fleet-11); the crash was found by re-running the repro without a sanitizer on a plain FT build."
 }

@@ -1,0 +1,19 @@
+# SIGSEGV crash backtrace (double-DECREF / use-after-free of gi->obj)
+# CPython 3.16.0a0 free-threaded builds (debug-ft-nojit AND release-ft-nojit-o0), PYTHON_GIL=0.
+# Reproduced 5/5 runs, exit 139 (SIGSEGV), near-instant (crashes within the first few rounds).
+# repro.py (16 threads sharing one iter(list[int])), NO sanitizer -- a plain free-threaded build.
+
+Thread 23664 "Thread-23663 (w" received signal SIGSEGV, Segmentation fault.
+#0  ga_iternext (op=0x200021525e0) at Objects/genericaliasobject.c:952
+#1  0x00005555558704ff in builtin_next (self=0x200023303d0, args=0x7fffb5ffa998, nargs=1) at Python/bltinmodule.c:1776
+#2  0x00005555558772af in _Py_BuiltinCallFast_StackRef (callable=callable@entry=..., arguments=arguments@entry=0x7ffff7e25218, total_args=total_args@entry=1) at Python/ceval.c:817
+#3  0x000055555588460a in _PyEval_EvalFrameDefault (tstate=0x20000249010, frame=<optimized out>, throwflag=0) at Python/generated_cases.c.h:2510
+#4  0x00005555558765a9 in _PyEval_EvalFrame (tstate=0x20000249010, frame=0x7ffff7e25128, throwflag=0) at ./Include/internal/pycore_ceval.h:122
+#5  _PyEval_Vector (tstate=0x20000249010, func=0x200024ccdb0, locals=0x0, args=0x7fffb5ffbb40, argcount=1, kwnames=0x0) at Python/ceval.c:2172
+#6  0x00005555556a5c9e in _PyObject_VectorcallTstate (tstate=0x20000249010, callable=0x200024ccdb0, args=args@entry=0x7fffb5ffbb40, nargsf=nargsf@entry=1, kwnames=kwnames@entry=0x0) at ./Include/internal/pycore_call.h:144
+#7  0x00005555556a884b in _PyObject_VectorcallPrepend (tstate=0x20000249010, callable=0x0, arg=0x20002772020, args=0x7fffb5ffbc08, nargsf=0, kwnames=0x0) at Objects/call.c:855
+#8  0x00005555558e2e46 in _PyObject_VectorcallTstate (tstate=0x20000249010, callable=0x200300f0070, args=0x0, nargsf=2199829479864, kwnames=0x0) at ./Include/internal/pycore_call.h:144
+#9  context_run (self=0x20002a97150, args=0x7fffb5ffbc00, nargs=1, kwnames=0x0) at Python/context.c:731
+#10 0x000055555587788f in _PyCallMethodDescriptorFastWithKeywords_StackRef (callable=callable@entry=..., cfunc=0x5555558e2d30 <context_run>, self=self@entry=0x20002a97150, arguments=0x7ffff7e250f8, total_args=total_args@entry=2) at Python/ceval.c:883
+#11 0x000055555588b449 in _PyEval_EvalFrameDefault (tstate=0x20000249010, frame=<optimized out>, throwflag=0) at Python/generated_cases.c.h:4205
+#12 0x00005555558765a9 in _PyEval_EvalFrame (tstate=0x20000249010, frame=0x7ffff7e25020, throwflag=0) at ./Include/internal/pycore_ceval.h:122

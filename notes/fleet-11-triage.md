@@ -39,11 +39,14 @@ fleet-11 surfaced **3 new races + 5 folded faces from 223 dirs in one pass**.
   cache (gh-125267, fixed). **`gh api` search found no existing issue → appears genuinely unfiled.**
   Reproduced in isolation (debug + release TSan). Report + repro packaged.
 
-- **TSAN-0045 — `types.GenericAlias` iterator double-DECREF.** `ga_iternext`
+- **TSAN-0045 — `types.GenericAlias` iterator double-DECREF → SIGSEGV (fileable).** `ga_iternext`
   (`genericaliasobject.c:952`) is one-shot: `Py_SETREF(gi->obj, NULL)`. A shared `iter(list[int])`
-  double-DECREFs `gi->obj` → refcount underflow / UAF (memory-unsafe). Distinct from the *closed*
-  gh-153298 (which is the `__parameters__` lazy-init, not the iterator). Very low real-world
-  priority (who shares a one-shot alias iterator?), but memory-unsafe. Reproduced.
+  double-DECREFs `gi->obj` → refcount underflow / UAF. **Not just a TSan warning — it CRASHES:** the
+  repro SIGSEGVs (exit 139) at `ga_iternext:952` **5/5 runs on both `debug-ft-nojit` AND
+  `release-ft-nojit-o0`** (plain builds, no sanitizer), near-instantly. Crosses the gh-124397 "must
+  not crash" bar unambiguously. Appears genuinely unfiled (distinct from the closed gh-153298
+  `__parameters__` race). Low real-world likelihood (who shares a one-shot alias iterator?) but a
+  hard crash from pure Python — **strong fileable candidate.** crash_backtrace.txt packaged.
 
 - **TSAN-0044 — generic sequence iterator (`iter(obj)` seqiter) + `deque` iterator, value-benign.**
   `iter_iternext` writes `it->it_index++` (`iterobject.c:72`) vs `iter_len` reading it (`:100`);
@@ -74,12 +77,26 @@ fleet-11 surfaced **3 new races + 5 folded faces from 223 dirs in one pass**.
   process-global allocator (`PyMem_SetAllocator`), which inherently races every other thread's
   allocation. It's a debug tool, not an FT target — expected noise. Added to `suppressions.txt`.
 
-## Left uncataloged (honest leftovers)
+## Left uncataloged (investigated — both known quantities, not folded on purpose)
 
-Re-ingest drops the new-signature groups from **19 → 2**, both deliberately not cataloged:
-`SEGV addr=0x? pc=0x5555556c4b6c` (an unsymbolized SEGV — most likely the count cascade, but not
-confidently attributable) and `_Py_atomic_load_ssize_relaxed | _Py_atomic_load_ssize_relaxed` (a
-pure-atomic self-race too generic to fold without mislabeling risk). Both 1 veh, only-via-multi-race.
+Re-ingest drops the new-signature groups from **19 → 2**. Investigated both (per maintainer ask);
+neither is a new bug, and neither is folded because both signatures are unsafe to catalog as-is:
+
+- **`SEGV addr=0x? pc=0x5555556c4b6c`** — the **count-UAF cascade**. In its dir the race immediately
+  before the SEGV is `_Py_TYPE_impl` (count_repr borrowing a freed long), i.e. **TSAN-0006**'s fatal
+  downstream (the #153917 slow-mode residual). TSan couldn't unwind the nested SEGV, so the only
+  signal is a raw `pc` — which is build-specific, so folding it into TSAN-0006 would go stale on the
+  next rebuild. Left as a documented cascade artifact.
+- **`_Py_atomic_load_ssize_relaxed | _Py_atomic_load_ssize_relaxed`** — actually **TSAN-0026** (dict
+  iterator): the frames below the atomic accessor are `dictiter_iternext_threadsafe:6082` (read) vs
+  `dictiter_iternextitem_lock_held:6017` (write). The signature collapsed to `atomic | atomic`
+  because both stanzas' *innermost* resolved frame is `_Py_atomic_load_ssize_relaxed`. Folding the
+  generic pair would mislabel any future atomic-ssize self-race. **The proper fix is a `tsan_dedup`
+  parser improvement** — treat `_Py_atomic_*` accessor frames as plumbing (skip to the real caller),
+  which would resolve this to `dictiter_iternext_threadsafe | dictiter_iternextitem_lock_held` (a
+  clean TSAN-0026 face). That's a cross-repo-contract change (it would reshape existing
+  `_Py_atomic_* | realfunc` catalog signatures), so it's deferred to a planned parser pass, not done
+  inline here.
 
 ## Catalog
 
@@ -90,9 +107,11 @@ TSAN-0041 (1) — our fleet-10 mints now deduping cleanly.
 
 ## Upstream posture
 
-- **TSAN-0043 (descr qualname)** — genuinely new + unfiled; the strongest fileable candidate from
-  this fleet. Awaiting go-ahead.
-- **TSAN-0045 (genericalias iter)** — memory-unsafe but ultra-low priority; fileable-if-desired.
+- **TSAN-0045 (genericalias iter)** — **CRASHES (SIGSEGV) on plain FT builds, genuinely unfiled →
+  the strongest fileable finding of the fleet.** A hard crash from pure Python crosses the gh-124397
+  bar regardless of the unusual sharing pattern. Awaiting go-ahead.
+- **TSAN-0043 (descr qualname)** — genuinely new + unfiled lazy-cache write/write race; fileable
+  (value-benign-ish leak, no crash observed). Awaiting go-ahead.
 - **TSAN-0044 (seq/deque iter)** — gh-120496, closed as acceptable per gh-124397; nothing to file.
 - The fleet-10 set/groupby/elementtree finds (TSAN-0040/0041/0042) were confirmed on their existing
   issues (#144356/#150791/#149816) in the previous session.
