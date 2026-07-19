@@ -4,7 +4,8 @@
   "title": "cjkcodecs: MultibyteIncrementalDecoder.getstate() races with reset() on the decoder pending state",
   "description": "multibytecodec.c's incremental decoder keeps its incomplete-input state in plain fields (pending[8], pendingsize, state) with no lock/critical section; a decoder shared across threads calling getstate() (reads self->pendingsize) and reset() (writes self->pendingsize=0) concurrently is a data race on self->pendingsize.",
   "signatures": [
-    "Modules/cjkcodecs/multibytecodec.c:_multibytecodec_MultibyteIncrementalDecoder_getstate_impl | Modules/cjkcodecs/multibytecodec.c:_multibytecodec_MultibyteIncrementalDecoder_reset_impl"
+    "Modules/cjkcodecs/multibytecodec.c:_multibytecodec_MultibyteIncrementalDecoder_getstate_impl | Modules/cjkcodecs/multibytecodec.c:_multibytecodec_MultibyteIncrementalDecoder_reset_impl",
+    "Modules/cjkcodecs/multibytecodec.c:_multibytecodec_MultibyteStreamReader_reset_impl | Modules/cjkcodecs/multibytecodec.c:_multibytecodec_MultibyteStreamReader_reset_impl"
   ],
   "sites": [
     "Modules/cjkcodecs/multibytecodec.c _multibytecodec_MultibyteIncrementalDecoder_getstate_impl:1261 (read self->pendingsize / self->pending, arg to PyBytes_FromStringAndSize)",

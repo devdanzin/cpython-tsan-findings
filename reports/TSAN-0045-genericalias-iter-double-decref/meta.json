@@ -1,0 +1,31 @@
+{
+  "id": "TSAN-0045",
+  "slug": "genericalias-iter-double-decref",
+  "title": "types.GenericAlias: a shared ga_iternext (iter(list[int])) races gi->obj and Py_SETREF(gi->obj, NULL) -> data race + double-DECREF / use-after-free (Objects/genericaliasobject.c:952)",
+  "description": "The GenericAlias iterator (gaiterobject in Objects/genericaliasobject.c, returned by iter(list[int]) etc.) is a ONE-SHOT iterator: ga_iternext reads gi->obj, builds one starred alias, then does Py_SETREF(gi->obj, NULL) (:952) and returns. There is no synchronization. When a single ga iterator is shared across threads, two threads both read gi->obj != NULL, both build the starred alias, and both Py_SETREF(gi->obj, NULL) -> a data race on gi->obj AND a double-DECREF of the object it pointed to (Py_SETREF decrefs the old value) -> refcount underflow / use-after-free. Memory-unsafe, unlike the value-benign sequence-iterator cursor races.",
+  "signatures": [
+    "Objects/genericaliasobject.c:ga_iternext | Objects/genericaliasobject.c:ga_iternext"
+  ],
+  "sites": [
+    "Objects/genericaliasobject.c ga_iternext:952 (READ gi->obj + Py_SETREF(gi->obj, NULL) with no lock; two threads both reach it -> race on gi->obj + double-DECREF of the old referent)"
+  ],
+  "race_kind": "shared one-shot iterator: unsynchronized read + Py_SETREF(gi->obj, NULL) across threads -> data race on gi->obj and a double-DECREF / use-after-free (refcount underflow). Memory-unsafe (crosses the gh-124397 'must not crash' bar), unlike the value-benign cursor iterators.",
+  "shared_state": "gaiterobject.obj (the borrowed-then-cleared reference to the source GenericAlias) on a single shared ga iterator",
+  "severity": "moderate (memory-unsafe: double-DECREF of gi->obj's referent -> refcount underflow / UAF), but LOW real-world priority -- sharing a one-shot iter(list[int]) across threads is very unusual. Free-threaded build only.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads each next() on ONE shared iter(list[int]), 4000 rounds) exits 66 on debug-ft-nojit-tsan; also reproduced on release-ft-nojit-tsan. Fleet-11 surfaced it (1 veh).",
+  "suggested_fix": "Take the ga iterator's per-object critical section (Py_BEGIN_CRITICAL_SECTION(gi)) around the read of gi->obj and the Py_SETREF, or clear gi->obj via an atomic exchange (`PyObject *obj = _Py_atomic_exchange_ptr(&gi->obj, NULL); if (!obj) return StopIteration; ...`) so exactly one thread consumes it.",
+  "status": "drafted",
+  "upstream_issue": null,
+  "related_issues": ["cpython#153298"],
+  "prior_art": "gh-153298 ('Data race creating types.GenericAlias.__parameters__ lazily under free-threading', CLOSED) is a DIFFERENT GenericAlias FT race (the __parameters__ lazy-init on the alias itself), not the ga ITERATOR's gi->obj double-DECREF. gh api search found no issue for the ga_iternext / gaiterobject race specifically.",
+  "found_date": "2026-07-18",
+  "found_in": "fusil-tsan_fleet_11",
+  "vehicles": 1,
+  "vehicle_examples": ["inst-0X/types-warning_threadsanitizer_data_race-tsanNEW"],
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer); also reproduced on release-ft-nojit-tsan -> NOT a debug-only artifact",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build main@a1d580430c8, current main)",
+  "related": "Memory-unsafe shared-iterator exhaustion (double-DECREF), like the bytes/str it_seq exhaustion (TSAN-0037/0038) but a one-shot iterator. Distinct from the value-benign cursor iterators (TSAN-0044/0040) and from gh-153298 (__parameters__). Surfaced only via --tsan-no-halt (fleet-11).",
+  "notes": "Appears unfiled for the ITERATOR race (gh-153298 is the sibling __parameters__ race). Memory-unsafe (double-DECREF) so it crosses the gh-124397 bar, but very-low real-world priority (who shares a one-shot iter(list[int])?). Fileable-if-desired; awaiting maintainer go-ahead. Reproduced on debug + release TSan builds."
+}

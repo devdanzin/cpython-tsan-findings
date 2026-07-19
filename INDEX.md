@@ -146,6 +146,21 @@ still `halt_on_error=1`. Removing the count fast-mode shadow surfaced the cross-
 | **TSAN-0042** | `itertools.groupby`: a shared groupby's `groupby_next` (`itertoolsmodule.c:537`) mutates `gbo->currkey/currvalue/tgtkey/currgrouper` with **no** critical section (faces `groupby_next\|groupby_next`, `_grouper_create\|groupby_next`) | **ALREADY REPORTED — gh-150791; fix pending in OPEN PR #150792** ("add critical section for `groupby.next`"). Crosses the gh-124397 "don't crash" bar (corrupts state → `AttributeError` on live objects). The merged gh-143543/#146613 are re-entrancy-only, orthogonal; gh-123471 doesn't list groupby, but #150791 tracks it directly. Reproduced on debug+release. **Not a new filing** — confirm on #150791, → `fixed` when #150792 merges |
 | folds | `dictiter…\|dictiter_iternextkey` → **TSAN-0026**; `unicodeiter_next\|unicodeiter_next` + `unicodeiter_len\|unicodeiter_next` → **TSAN-0038** (general non-ASCII unicode iterator; same #153928); `_decimal_Context_clear_traps_impl\|type_call` → **TSAN-0019**; `_PyLong_DigitCount\|_PyMem_DebugRawAlloc` → **TSAN-0006** (count slow-mode UAF residual of #153917, count_repr on stack) | 5 new faces of known races, folded |
 
+## Fleet 11 additions (TSAN-0043…0045) — first `--tsan-no-halt` fleet
+
+`fusil-tsan_fleet_11` (4 inst, **223 crash dirs**, 2026-07-18). **First fleet with `--tsan-no-halt`**
+(multiple races per session, fusil #221/#222). **82/223 dirs carried a `tsan_races.tsv` sidecar.**
+Multi-race captured **344 race instances / 62 distinct signatures** vs the **41** a `halt_on_error=1`
+fleet would have seen — **129 instances masked before, 21 signatures never a first race**. Full
+triage + stats in `notes/fleet-11-triage.md`.
+
+| id | what races | disposition |
+|----|-----------|-------------|
+| **TSAN-0043** | descriptor `__qualname__`: `descr_get_qualname` (`descrobject.c:625`) does `if (!descr->d_qualname) descr->d_qualname = calculate_qualname(...)` with no lock → concurrent first-read of a shared descriptor's `__qualname__` write/write-races `d_qualname` (+ leak) | **NEW, reproduced, appears UNFILED** (gh api search empty). Lazy-cache class (cf. `_elementtree` TSAN-0041, objreduce gh-125267). Descriptors live on shared types → realistic. **Strongest fleet-11 fileable candidate**, awaiting go-ahead |
+| **TSAN-0045** | `types.GenericAlias` iterator: `ga_iternext` (`genericaliasobject.c:952`) `Py_SETREF(gi->obj, NULL)` on a shared one-shot `iter(list[int])` → double-DECREF / UAF | **NEW, reproduced.** Memory-unsafe but ultra-low priority (who shares a one-shot alias iterator?). Distinct from the *closed* gh-153298 (`__parameters__` lazy-init). Fileable-if-desired |
+| **TSAN-0044** | generic sequence iterator (`iter(obj)` seqiter, `iterobject.c:72/100`) + `deque` iterator: non-atomic `it_index`/cursor | **= gh-120496 (CLOSED), value-benign.** `PySequence_GetItem` is bounds-checked → duplicate/skip, not OOB; acceptable per rhettinger's iterator strategy gh-124397. **Not fileable** — cataloged for dedup. Notable as proof `--tsan-no-halt` unmasks races halt=1 hid |
+| folds | `multibytecodec StreamReader.reset` → **TSAN-0001**; count faces `long_alloc\|long_to_decimal` + `count_repr\|count_repr` + cascade `SEGV PyObject_Repr` → **TSAN-0006**; `unpackiter_len\|unpackiter_len` → **TSAN-0039**; `_lsprof Stop\|Stop` → **TSAN-0008**; `clear_extra\|element_bool` → **TSAN-0041**. tracemalloc allocator-swap races → **suppressed** | 5 folded + noise suppressed |
+
 ## Cross-check
 
 None of these overlap **#149816** ("22 free-threading race conditions") — that umbrella covers

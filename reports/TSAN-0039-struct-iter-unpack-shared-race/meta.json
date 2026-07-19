@@ -5,7 +5,8 @@
   "description": "The struct unpack-iterator (unpackiterobject in Modules/_struct.c, returned by Struct.iter_unpack) keeps its byte offset / index in a plain field with no synchronization. When a single unpack iterator is shared across threads, unpackiter_iternext advances that index (:2278) with no atomicity while unpackiter_len (the __length_hint__ slot, :2249) plainly reads it -> data race on the cursor. This is the struct form of the same builtin-iterator shared-cursor defect as the str (cpython#153928 / TSAN-0038) and bytes (TSAN-0037) iterators, filed upstream as cpython#154013. Surfaced by fusil's --tsan shared-iterator op (PR #211/#213): op h shares one struct.Struct('i').iter_unpack(bytes(4*4096)) by reference, some workers advancing via next() and some reading its cursor via operator.length_hint.",
   "signatures": [
     "Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_iternext",
-    "Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_len"
+    "Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_len",
+    "Modules/_struct.c:unpackiter_len | Modules/_struct.c:unpackiter_len"
   ],
   "sites": [
     "Modules/_struct.c unpackiter_iternext:2278 (WRITE the iterator index/offset: the non-atomic cursor advance the fleet's next() drives)",

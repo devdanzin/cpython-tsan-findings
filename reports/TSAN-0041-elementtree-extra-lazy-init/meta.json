@@ -6,7 +6,8 @@
   "signatures": [
     "Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_length",
     "Modules/_elementtree.c:clear_extra | Modules/_elementtree.c:create_extra",
-    "Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_attrib_getter"
+    "Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_attrib_getter",
+    "Modules/_elementtree.c:clear_extra | Modules/_elementtree.c:element_bool"
   ],
   "sites": [
     "Modules/_elementtree.c create_extra:274 (WRITE self->extra = PyMem_Malloc(sizeof(ElementObjectExtra)); no critical section)",

@@ -1,0 +1,34 @@
+{
+  "id": "TSAN-0044",
+  "slug": "seq-iterator-shared-race",
+  "title": "sequence iterators: iter(obj) (iterobject.c seqiterobject) and collections.deque iterators advance a shared iterator's it_index/counter non-atomically -> value-benign cursor race (= gh-120496 class)",
+  "description": "The generic sequence iterator (seqiterobject in Objects/iterobject.c, returned by iter(obj) for a __getitem__ type, and the fallback iterator) keeps its cursor in a plain it->it_index with no synchronization: iter_iternext writes it->it_index++ (:72) and reads it (:64,:70) while iter_len reads it->it_index (:100). Sharing one such iterator across threads races the cursor. The collections.deque iterator (dequeiter_next_lock_held) is the same class -- it takes the deque's lock for the block walk but its own counter/index is not serialized vs a length_hint read. This is exactly gh-120496 ('Sequence iterator thread-safety', which explicitly tested iter(range), list/dict iterators, and 'a custom class implementing __getitem__'). Surfaced by fusil op-h (shared iterator + length_hint) once --tsan-no-halt (fleet-11) stopped the dominant bytes/str/count races from masking it.",
+  "signatures": [
+    "Objects/iterobject.c:iter_iternext | Objects/iterobject.c:iter_len",
+    "Objects/iterobject.c:iter_iternext | Objects/iterobject.c:iter_iternext",
+    "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ssize | Modules/_collectionsmodule.c:dequeiter_next_lock_held"
+  ],
+  "sites": [
+    "Objects/iterobject.c iter_iternext:72 (WRITE it->it_index++ -- the non-atomic cursor advance)",
+    "Objects/iterobject.c iter_len:100 (READ it->it_index for __length_hint__)",
+    "Modules/_collectionsmodule.c dequeiter_next_lock_held (the deque iterator's counter/index advance vs a concurrent length_hint read)"
+  ],
+  "race_kind": "shared-iterator state: non-atomic cursor read/write (it_index / deque iter counter) on a single shared sequence iterator -> value-benign data race. Same class as gh-120496 and the builtin sequence-iterator family (TSAN-0037/0038/0039/0040/0026).",
+  "shared_state": "seqiterobject.it_index (and it_seq) / dequeiterobject.counter+index on a single shared iterator",
+  "severity": "low (VALUE-BENIGN): iter_iternext uses PySequence_GetItem, which does its own bounds check, so a torn/stale it_index yields a duplicate/skipped value or StopIteration -- NOT an out-of-bounds read (unlike the bytes/str iterators which index ob_sval directly). Per CPython's iterator FT strategy gh-124397 (rhettinger), 'concurrent access is allowed to return duplicate values, skip values, or raise' -- so this is explicitly acceptable, which is why gh-120496 is CLOSED. Free-threaded build only.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads sharing one iter(Seq()) where Seq implements __getitem__, half advancing via next(), half reading operator.length_hint) exits 66 on debug-ft-nojit-tsan; observed the iter_iternext self-race face. Fleet-11 drove the iter_iternext|iter_len face (3 veh) + the deque face (1 veh).",
+  "suggested_fix": "Per gh-124397 this class is deemed acceptable (value-benign, GIL-free duplicate/skip allowed) and is NOT slated for a fix; a user sharing an iterator should add their own lock. If ever hardened, make it_index atomic or take a per-iterator critical section (as the memory-unsafe bytes/str iterators require for their OOB/double-DECREF faces).",
+  "status": "confirmed",
+  "upstream_issue": 120496,
+  "related_issues": ["cpython#120496", "cpython#124397"],
+  "prior_art": "gh-120496 ('Sequence iterator thread-safety', CLOSED) is exactly this -- its repro tested iter(range), list/dict iterators, and a custom __getitem__ class (which yields this seqiterobject). Closed because gh-124397 (rhettinger's iterator FT strategy) rules value-benign duplicate/skip acceptable.",
+  "found_date": "2026-07-18",
+  "found_in": "fusil-tsan_fleet_11",
+  "vehicles": 4,
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer); also reproduced on release-ft-nojit-tsan",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build; WONT-FIX per gh-120496/gh-124397)",
+  "related": "Builtin/stdlib sequence-iterator cursor family. The MEMORY-UNSAFE members (bytes TSAN-0037 / str TSAN-0038: OOB read + it_seq double-DECREF) ARE fileable; the VALUE-BENIGN members (this seqiter/deque, set TSAN-0040) are gh-120496/gh-124397-acceptable. Cataloged for dedup.",
+  "notes": "Value-benign gh-120496 class -- NOT fileable (closed as acceptable per gh-124397). Cataloged so fleets dedupe it. Notable only as a demonstration of --tsan-no-halt value: this was masked in every prior halt_on_error=1 fleet by the dominant bytes/str/count races and only surfaced once fleet-11 captured multiple races per session."
+}

@@ -1,0 +1,31 @@
+{
+  "id": "TSAN-0043",
+  "slug": "descriptor-qualname-lazy-cache",
+  "title": "descriptor: descr_get_qualname lazily caches descr->d_qualname with no lock -> write/write data race + leak on a shared method/getset/wrapper descriptor (Objects/descrobject.c:625)",
+  "description": "PyDescrObject caches the descriptor's __qualname__ lazily in descr->d_qualname. descr_get_qualname (Objects/descrobject.c) does `if (descr->d_qualname == NULL) descr->d_qualname = calculate_qualname(descr);` (:625) with NO critical section. Descriptors (method_descriptor / getset_descriptor / wrapper_descriptor) live on their owning type and are therefore SHARED across all threads. When two threads first read the same descriptor's __qualname__ concurrently, both observe d_qualname == NULL, both call calculate_qualname, and both WRITE descr->d_qualname -> a write/write data race and a leak (one computed qualname str is overwritten and orphaned). Same lazy-init-without-lock class as the _elementtree extra race (TSAN-0041) and the object.__reduce_ex__ objreduce cache fixed in gh-125267.",
+  "signatures": [
+    "Objects/descrobject.c:descr_get_qualname | Objects/descrobject.c:descr_get_qualname"
+  ],
+  "sites": [
+    "Objects/descrobject.c descr_get_qualname:625 (WRITE descr->d_qualname = calculate_qualname(descr) under an unsynchronized `if (descr->d_qualname == NULL)` check; two threads both take the branch)"
+  ],
+  "race_kind": "lazy initialization without synchronization: an unlocked check-then-write of a cached PyObject* (descr->d_qualname) on a shared descriptor -> write/write data race + leak. NOT an iterator cursor; a shared mutable-object field with no per-object critical section.",
+  "shared_state": "PyDescrObject.d_qualname (the lazily-computed __qualname__ str cache) on a descriptor, which is shared via its owning type",
+  "severity": "moderate (write/write on a heap PyObject* pointer -> leak of one qualname str per lost race, and a torn/overwritten d_qualname a concurrent reader can observe). Descriptors are attached to types, which ARE shared across threads, so concurrent first-read of X.method.__qualname__ is realistic. Value-benign-ish once past the first race (idempotent-ish string), but a genuine C11 data race + leak on a shared object. Free-threaded build only.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (gathers builtin method/getset/wrapper descriptors whose d_qualname is still NULL and races __qualname__ across 8 threads per descriptor) exits 66 on debug-ft-nojit-tsan; also reproduced on release-ft-nojit-tsan. Fleet-11 (--tsan-no-halt) surfaced it as a first race (1 veh).",
+  "suggested_fix": "Serialize the lazy init: take the descriptor's per-object critical section (Py_BEGIN_CRITICAL_SECTION(descr)) around the `if (descr->d_qualname == NULL) descr->d_qualname = calculate_qualname(...)`, re-checking inside; or make d_qualname a one-shot atomic compare-exchange (compute, then CAS NULL->new, DECREF the loser). Mirrors how other lazy PyObject* caches were hardened for free-threading (e.g. gh-125267 objreduce).",
+  "status": "drafted",
+  "upstream_issue": null,
+  "related_issues": ["cpython#125267"],
+  "prior_art": "gh api tracker search (calculate_qualname / d_qualname / descr_get_qualname) found NO existing issue -> appears genuinely UNFILED. Same lazy-cache-without-lock class as gh-125267 (object.__reduce_ex__ objreduce, FIXED by initializing the cache eagerly) and TSAN-0041 (_elementtree extra).",
+  "found_date": "2026-07-18",
+  "found_in": "fusil-tsan_fleet_11",
+  "vehicles": 1,
+  "vehicle_examples": ["inst-0X/profiling_sampling_heatmap_collector-warning_threadsanitizer_data_race-tsanNEW"],
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer); also reproduced on release-ft-nojit-tsan -> NOT a debug-only artifact",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build main@a1d580430c8, current main)",
+  "related": "Lazy-init-without-lock class: TSAN-0041 (_elementtree extra), gh-125267 (objreduce). Distinct from the builtin-iterator cursor family. Surfaced only because --tsan-no-halt (fleet-11) stopped the dominant count/iterator races from masking it.",
+  "notes": "GENUINELY NEW / appears unfiled. Fileable candidate (a lazy-cache write/write race + leak on a shared descriptor, realistic sharing since types are shared). Awaiting maintainer go-ahead (outward-facing). Reproduced in isolation on debug + release TSan builds."
+}

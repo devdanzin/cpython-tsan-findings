@@ -102,3 +102,13 @@ Modules/posixmodule.c:posixmodule_exec \| Objects/structseq.c:count_members
 # initialize_structseq_dict on the static global 'stat_result_fields' (Modules/posixmodule.c:18817).
 # Same class as the fleet-04 `posixmodule_exec | count_members` entry above.
 Modules/posixmodule.c:posixmodule_exec \| Objects/structseq.c:initialize_structseq_dict
+
+# --- fleet-11 additions (2026-07-18) ---
+
+# tracemalloc: fusil fuzzes the tracemalloc module concurrently, but tracemalloc.start()/stop()
+# swaps the PROCESS-GLOBAL allocator via PyMem_SetAllocator, which inherently races every other
+# thread's PyMem_GetAllocator / allocation. tracemalloc is a debug tool, not a free-threading
+# target, and you must not start/stop it concurrently with other threads allocating -- expected
+# noise, not a target finding. Matches any race with a tracemalloc.c frame or the allocator swap.
+tracemalloc\.c:
+Objects/obmalloc\.c:PyMem_(Set|Get)Allocator
