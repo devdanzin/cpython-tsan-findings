@@ -2,7 +2,7 @@
 
 *`itertools.groupby` keeps its cross-call state — `currkey`, `currvalue`, `tgtkey`, and the current child grouper `currgrouper` — in plain fields on the `groupbyobject`, with **no** critical section anywhere in `groupby_next`. When one `groupby` iterator is shared across threads (e.g. several workers each doing `list(gb)`), `groupby_next` writes `gbo->currgrouper` and (via `groupby_step`) swaps `gbo->currvalue`/`gbo->currkey` while another thread's `groupby_next`/`_grouper_next` reads or writes the same fields — a data race on the group cursor, with unsynchronized `Py_XSETREF`/`Py_XDECREF` on shared `PyObject*` fields.*
 
-**Status: unaddressed.** The merged groupby fixes ([gh-143543](https://github.com/python/cpython/issues/143543), [gh-146613](https://github.com/python/cpython/issues/146613)) are for a **re-entrancy** use-after-free (a user `__eq__` re-entering `next()`), not thread-safety — they add `Py_INCREF` snapshots but **no** locking. The itertools free-threading umbrella [gh-123471](https://github.com/python/cpython/issues/123471) does **not** list `groupby`.
+**This is not a new find:** it is [gh-150791](https://github.com/python/cpython/issues/150791) ("`groupby_next` data race on free-threaded builds"), with the open (unmerged) fix [PR #150792](https://github.com/python/cpython/pull/150792) ("gh-150791: add critical section for `groupby.next`"). The issue describes exactly this race — two threads in `groupby_next` racing `gbo->currgrouper` (one writing `NULL` at `:537`, the other storing the new grouper via `_grouper_create` at `:633`), corrupting state and raising `AttributeError` on slot accesses of live objects. The earlier, *merged* groupby fixes ([gh-143543](https://github.com/python/cpython/issues/143543) / [gh-146613](https://github.com/python/cpython/issues/146613)) are **re-entrancy** UAF fixes (a user `__eq__` re-entering `next()`), orthogonal to the thread race — they add `Py_INCREF` snapshots but no locking. `fusil --tsan` (fleet 10) reproduced the thread race independently.
 
 _AI Disclaimer: this report was drafted by Claude Code, which also created and ran the reproducer; the maintainer reviewed and edited it._
 
@@ -113,18 +113,19 @@ Fleet-10 drove the `groupby_next | groupby_next` self-race (1 vehicle); the isol
 
 ## Impact / severity
 
-**Low–moderate.** A data race on the group cursor: under concurrency it produces mis-grouped / duplicated / lost groups, and the unsynchronized `Py_XSETREF`/`Py_XDECREF` on `currkey`/`currvalue` is a refcount race (a lost or doubled decref on shared objects can crash). Sharing one `groupby` across threads is unusual, which caps real-world priority; but unlike `count`, `groupby` has **no** free-threading protection at all. Free-threaded build only.
+**Moderate.** Unlike a purely value-benign cursor race, this one *corrupts* the iterator's internal state: gh-150791 reports it producing `AttributeError` on slot accesses of live objects, and the unsynchronized `Py_XSETREF`/`Py_XDECREF` on `currkey`/`currvalue` is a refcount race (a lost or doubled decref on shared objects can crash). So it crosses the bar set by CPython's iterator free-threading strategy ([gh-124397](https://github.com/python/cpython/issues/124397), Raymond Hettinger): even though "concurrent access is allowed to return duplicate/skipped values or raise", it must **not crash** — and this one corrupts state, which is why it has a dedicated fix PR. Sharing one `groupby` across threads is unusual (which caps real-world priority), but unlike `count`, `groupby` has **no** free-threading protection at all. Free-threaded build only.
 
 ## Suggested fix
 
-Take the `groupby` object's per-object critical section (`Py_BEGIN_CRITICAL_SECTION(gbo)`) over `groupby_next`'s read-modify-write of `currgrouper`/`currkey`/`currvalue`/`tgtkey` (and coordinate `_grouper_next`'s reads of the parent's `currkey`/`currvalue`), the same way other stateful itertools iterators are being hardened under gh-123471. The parent↔child grouper handoff (`currgrouper`) must be atomic with respect to concurrent advances.
+Exactly what open **[PR #150792](https://github.com/python/cpython/pull/150792)** does: take the `groupby` object's per-object critical section (`Py_BEGIN_CRITICAL_SECTION`) over `groupby_next`'s read-modify-write of `currgrouper`/`currkey`/`currvalue`/`tgtkey` (and coordinate `_grouper_next`'s reads of the parent). The parent↔child grouper handoff (`currgrouper`) must be atomic with respect to concurrent advances.
 
 ## Notes
 
-- **New / unaddressed.** `groupby` is absent from the itertools FT-safety umbrella gh-123471 (which lists `pairwise`/`combinations`/`permutations`/`cwr`/`product`/…), and the merged gh-143543/#146613 fixes are re-entrancy-only. Fileable as a new item (fits the gh-123471 spirit; `groupby` is a gap there) — outward-facing, awaiting maintainer go-ahead.
-- Same shared-stateful-itertools-object class as `itertools.count` (TSAN-0006 / #153908), which was at least partially hardened; `groupby` has no protection. Distinct from the sequence-iterator cursor family (TSAN-0037/0038/0039/0040/0026).
+- **Already reported + fix in flight.** gh-150791 ("`groupby_next` data race on free-threaded builds") with open PR #150792 ("add critical section for `groupby.next`"). **No new filing warranted** — a confirmation on #150791 that `fusil --tsan` reproduces it is the only outward-facing step, at the maintainer's discretion. The isolated repro here (8 threads × `list(shared_groupby)`) is a simpler trigger than the issue's `__eq__`-key script. Re-run `repro.py` → `status: fixed` when #150792 merges.
+- The merged gh-143543 / gh-146613 fixes are **re-entrancy** UAFs (the `Py_INCREF` snapshots in `groupby_next`), orthogonal to the thread race. The itertools FT-safety umbrella gh-123471 lists `pairwise`/`combinations`/`permutations`/`cwr`/`product`/… but not `groupby`; #150791/#150792 tracks `groupby` directly.
+- Same shared-stateful-itertools-object class as `itertools.count` (TSAN-0006 / #153908). Distinct from the sequence-iterator cursor family (TSAN-0037/0038/0039/0040/0026).
 - Found by ThreadSanitizer fuzzing (`fusil --tsan`, fleet 10): the op-mix shared-object path shares one `groupby(range(...))` across workers each doing `list()`.
 
 ---
 
-*Shared stateful-itertools-object race (cf. count/TSAN-0006). Not yet individually filed.*
+*This is gh-150791 (fix pending in PR #150792). Recorded for the catalog; not a separate filing.*

@@ -87,6 +87,7 @@ Same as the str/bytes iterators: make the unpack-iterator's index an atomic load
 
 ## Notes
 
+- **Governing strategy.** [gh-124397](https://github.com/python/cpython/issues/124397) ("Strategy for Iterators in Free Threading", Raymond Hettinger): C iterators get "only the minimal changes necessary to cause them to **not crash** … concurrent access is allowed to return duplicate values, skip values, or raise an exception." The fileable concern for the unpack iterator is that a mis-stepped index can drive an out-of-bounds unpack read (a crash), not the value race per se.
 - This **is** cpython#154013 (`struct.iter_unpack` iterator). `status: reported`.
 - Same builtin-iterator shared-cursor family as TSAN-0037 (bytes), TSAN-0038 (str / #153928), TSAN-0040 (set), TSAN-0026 (dict).
 - Found by ThreadSanitizer fuzzing (`fusil --tsan`, fleet 08, 88 vehicles): the op-mix shared-iterator path shares one `Struct('i').iter_unpack(bytes(4*4096))` across workers, some advancing via `next()` and some reading the cursor via `operator.length_hint`.

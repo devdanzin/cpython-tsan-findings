@@ -83,6 +83,7 @@ The list/tuple/range/str iterators share this shape and want the same treatment.
 
 ## Notes
 
+- **Why this one *is* fileable** (per CPython's iterator strategy). [gh-124397](https://github.com/python/cpython/issues/124397) ("Strategy for Iterators in Free Threading", Raymond Hettinger) sets the bar: C iterators get "only the minimal changes necessary to cause them to **not crash** … concurrent access is allowed to return duplicate values, skip values, or raise an exception." So the pure `it_index` *value* race would be acceptable — but the two consequences here are **memory-unsafe** and cross that bar: the `it_index` race is an out-of-bounds read of `ob_sval`, and the exhaustion path double-DECREFs `it_seq` (a UAF). Those are the reportable defects, not the value race.
 - The **bytes** form of #153928 (str). Not separately filed — the appropriate outward-facing step (at the maintainer's discretion) is a note on the #153928 thread that "the same race exists in `bytesobject.c:striter_next`", since it is the same defect class already under review. `status: confirmed`.
 - Same builtin-iterator shared-cursor family as TSAN-0038 (str / #153928), TSAN-0039 (struct / #154013), TSAN-0040 (set), and TSAN-0026 (dict).
 - Found by ThreadSanitizer fuzzing (`fusil --tsan`, fleet 06, 196 vehicles): the op-mix shared-iterator path shares one `iter(b'A'*N)` across workers.

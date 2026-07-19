@@ -85,6 +85,7 @@ Same as the bytes analog / #153928: make `it_index` an atomic load/store (or tak
 
 ## Notes
 
+- **Why this is a bug** (per CPython's iterator strategy). [gh-124397](https://github.com/python/cpython/issues/124397) ("Strategy for Iterators in Free Threading", Raymond Hettinger) sets the bar: C iterators get "only the minimal changes necessary to cause them to **not crash** … concurrent access is allowed to return duplicate values, skip values, or raise an exception." The pure `it_index` *value* race is therefore acceptable; the fileable parts are memory-unsafe — the OOB read past the string and the `it_seq` double-DECREF (UAF) — which is exactly why #153928 is being fixed.
 - This **is** cpython#153928 (str `unicode_ascii_iter_next`), which we independently reproduced and commented on. `status: reported`.
 - Fleet-10 folded the **general** (non-ASCII) `unicodeiter_next` faces (`unicodeiter_next | unicodeiter_next`, `unicodeiter_len | unicodeiter_next`) here — same bug/#153928, the non-ASCII code path.
 - Same builtin-iterator shared-cursor family as TSAN-0037 (bytes), TSAN-0039 (struct / #154013), TSAN-0040 (set), TSAN-0026 (dict).

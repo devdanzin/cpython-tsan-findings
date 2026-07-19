@@ -2,7 +2,7 @@
 
 *The set iterator (`setiterobject`, from `iter(set)`/`iter(frozenset)`) keeps its position in plain fields — `len` (remaining-count), `si_pos` (table index), `si_used` (size snapshot). `setiter_iternext` advances them with `si->len--` and `si->si_pos = i+1` **outside** any critical section (the `Py_BEGIN_CRITICAL_SECTION` it holds is on the **set** `so`, not the iterator), while `setiter_len` (the `__length_hint__` slot) plainly **reads** `si->len` and `si->si_used`. Sharing one set iterator across threads is a data race on its private cursor — the `set` sibling of the bytes/str/struct iterator races.*
 
-**Prior art:** [gh-112069](https://github.com/python/cpython/issues/112069) ("Make `set` thread-safe in `--disable-gil` builds", CLOSED) + [PR #117935](https://github.com/python/cpython/pull/117935) ("Make `setiter_iternext` to be thread-safe", MERGED) made concurrent iteration of a shared *set* safe, but did **not** protect the *iterator's own* cursor — so a shared *iterator* still races. Same class as the filed [str #153928](https://github.com/python/cpython/issues/153928) / [struct #154013](https://github.com/python/cpython/issues/154013) iterator races.
+**This is not a new find:** it is [gh-144356](https://github.com/python/cpython/issues/144356) ("Data race in set iterator length_hint under no-gil"), and the open (unmerged) [PR #144357](https://github.com/python/cpython/pull/144357) ("gh-144356: Make set iterator `__length_hint__` and `iternext` race-safe under no-gil") is the fix — its diff runs `setiter_len` under `Py_BEGIN_CRITICAL_SECTION(op)` and `setiter_iternext` under `Py_BEGIN_CRITICAL_SECTION2(self, so)` with the `si->si_pos`/`si->len--` writes moved *inside* the section, which covers exactly this race. Background: [PR #117935](https://github.com/python/cpython/pull/117935) (gh-112069, MERGED) earlier hardened `setiter_iternext`'s access to the *set* but left the iterator's own cursor plain; #144356/#144357 is the follow-up. `fusil --tsan` (fleet 10) reproduced it independently.
 
 _AI Disclaimer: this report was drafted by Claude Code, which also created and ran the reproducer; the maintainer reviewed and edited it._
 
@@ -114,23 +114,18 @@ PR #117935 (gh-112069) made **concurrent iteration of a shared set** safe: it co
 
 ## Impact / severity
 
-**Low–moderate.** A data race on the iterator's countdown/index: under concurrency it yields a stale/mis-stepped `__length_hint__`, or duplicated/skipped elements, or a spuriously-tripped "Set changed size during iteration". Sharing one iterator across threads is unusual (which caps real-world priority), but it is a genuine C11 data race in exactly the primitive that #112069/#117935 set out to make thread-safe. Free-threaded build only.
+**Low (value-benign).** The element fetch itself runs under `Py_BEGIN_CRITICAL_SECTION(so)`, so this race is confined to the iterator's *bookkeeping* — `si->len` / `si->si_used` — and produces a stale/mis-stepped `__length_hint__`, or duplicated/skipped elements, or a spuriously-tripped "Set changed size during iteration". No out-of-bounds access or crash. Under CPython's official iterator free-threading strategy ([gh-124397](https://github.com/python/cpython/issues/124397), Raymond Hettinger) — *"other iterators … get only the minimal changes necessary to cause them to not crash … concurrent access is allowed to return duplicate values, skip values, or raise an exception"* — a purely value-benign cursor race like this is explicitly low-priority. The maintainers nonetheless chose to make the set iterator fully race-clean (#144356 / PR #144357). Free-threaded build only.
 
 ## Suggested fix
 
-Protect the iterator's *own* cursor, mirroring what the str/bytes/struct iterators need:
-
-- take a per-**iterator** critical section (`Py_BEGIN_CRITICAL_SECTION(si)`) over the read-modify-write of `si->len`/`si->si_pos`/`si->si_used` in `setiter_iternext`, and the read in `setiter_len`; **or**
-- make those three fields atomic (relaxed loads/stores), as `so->used` and `si->si_used`'s load already are.
-
-The whole builtin sequence/collection-iterator family shares this shape; a uniform "shared iterator cursor" policy would cover set, str, bytes, struct, and dict at once.
+Exactly what open **[PR #144357](https://github.com/python/cpython/pull/144357)** does: run `setiter_len` under the iterator's critical section (`Py_BEGIN_CRITICAL_SECTION(op)`), and in `setiter_iternext` take `Py_BEGIN_CRITICAL_SECTION2(self, so)` (both the iterator *and* the set) so that the `si->si_pos = i+1` / `si->len--` cursor writes happen inside the section. That serializes the iterator's own bookkeeping across threads while keeping the existing set-keyed protection.
 
 ## Notes
 
-- **Not covered by the merged fix.** gh-112069/#117935 hardened `setiter_iternext`'s access to the *set*; the per-*iterator* cursor was left plain. Fileable as a follow-up to gh-112069 (same shared-iterator class as the filed #153928 / #154013), or folded into the builtin-iterator family umbrella #153852. Outward-facing — awaiting maintainer go-ahead.
-- Related: gh-120496 ("Sequence iterator thread-safety") is the general shared-iterator question for the list/tuple sequence iterators; this is the `set` collection iterator.
+- **Already reported + fix in flight.** gh-144356 ("Data race in set iterator length_hint under no-gil") with open PR #144357. **No new filing warranted** — a confirmation on #144356 that `fusil --tsan` reproduces it (and that PR #144357 resolves it) is the only outward-facing step, at the maintainer's discretion. When #144357 merges, re-run `repro.py` and move to `status: fixed`. Background: gh-112069 / PR #117935 (MERGED 2024) hardened the *set*-access half; #144356/#144357 is the follow-up for the iterator's own cursor.
+- Same builtin-iterator shared-cursor family as TSAN-0037 (bytes), TSAN-0038 (str / #153928), TSAN-0039 (struct / #154013), TSAN-0026 (dict); gh-120496 is the general sequence-iterator question. For that whole family, gh-124397 frames the bar: value races are acceptable, memory-unsafety (OOB / double-DECREF, cf. bytes/str) is the fileable part — this set race is on the value-benign side.
 - Found by ThreadSanitizer fuzzing (`fusil --tsan`, fleet 10): the op-mix shared-iterator path shares one `iter(set(...))` across workers, some advancing it with `next()` and some reading its cursor with `operator.length_hint`.
 
 ---
 
-*Part of the builtin-iterator shared-cursor family (TSAN-0037 bytes / TSAN-0038 str / TSAN-0039 struct / TSAN-0026 dict). Not yet individually filed.*
+*This is gh-144356 (fix pending in PR #144357). Recorded for the catalog; not a separate filing.*
