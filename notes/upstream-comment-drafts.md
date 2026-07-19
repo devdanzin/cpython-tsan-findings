@@ -98,3 +98,123 @@ for _ in range(500):
 Exit 66 under TSAN; the script above races `_grouper_create` against `groupby_next` (creating the child grouper while another thread advances the parent), alongside the `groupby_next`-vs-`groupby_next` race on `currgrouper` described in the issue. Also iterating the yielded sub-groups races `_grouper_next` against the parent's `currkey`/`currvalue` — consistent with PR #150792 guarding `_grouper_next` (via `Py_BEGIN_CRITICAL_SECTION(parent)`) as well as `groupby_next`. Confirmed on current `main` (3.16.0a0), debug + release TSan builds.
 
 *(Found by `fusil --tsan`, a ThreadSanitizer fuzzer; draft and reproducer by Claude Code, minimized and reviewed by hand.)*
+
+---
+
+## → NEW ISSUE (TSAN-0045) — GenericAlias iterator crash
+
+**Title:** `Crash (segfault) in ga_iternext: sharing a types.GenericAlias iterator across threads double-frees under free-threading`
+
+**Body:**
+
+# Bug report
+
+### Bug description
+
+On a free-threaded (`--disable-gil`) build, iterating a **single, shared** `types.GenericAlias`
+iterator (e.g. `iter(list[int])`) from multiple threads segfaults. `ga_iternext`
+(`Objects/genericaliasobject.c`) is a one-shot iterator with no synchronization:
+
+```c
+static PyObject *
+ga_iternext(PyObject *op)
+{
+    gaiterobject *gi = (gaiterobject *)op;
+    if (gi->obj == NULL) {                               // read gi->obj
+        PyErr_SetNone(PyExc_StopIteration);
+        return NULL;
+    }
+    gaobject *alias = (gaobject *)gi->obj;
+    PyObject *starred_alias = Py_GenericAlias(alias->origin, alias->args);   // use gi->obj
+    if (starred_alias == NULL)
+        return NULL;
+    ((gaobject *)starred_alias)->starred = true;
+    Py_SETREF(gi->obj, NULL);                            // Py_DECREF(gi->obj); gi->obj = NULL
+    return starred_alias;
+}
+```
+
+Two threads both observe `gi->obj != NULL`, both build the starred alias from it, and both reach
+`Py_SETREF(gi->obj, NULL)` (which is `tmp = gi->obj; gi->obj = NULL; Py_DECREF(tmp)`). With
+`gi->obj`'s refcount at 1 (the iterator is its only holder), the two `Py_DECREF`s free it twice —
+a double-free / refcount underflow — and the reads of `alias->origin`/`alias->args` become a
+use-after-free once the other thread frees it. The process crashes.
+
+### Reproducer
+
+```python
+import threading
+
+NT = 16
+
+def worker(it, barrier):
+    barrier.wait()
+    try:
+        next(it)
+    except StopIteration:
+        pass
+
+for _round in range(20000):
+    shared = iter(list[int])      # ONE shared GenericAlias iterator; gi->obj refcount == 1
+    bar = threading.Barrier(NT)
+    threads = [threading.Thread(target=worker, args=(shared, bar)) for _ in range(NT)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+print("done")
+```
+
+`PYTHON_GIL=0 ./python repro.py` segfaults within the first few rounds — **5/5 runs on both a debug
+and a release (`-O0`, no sanitizer) free-threaded build**, so it is neither debug-only nor
+sanitizer-only:
+
+```
+Thread NNNN received signal SIGSEGV, Segmentation fault.
+#0  ga_iternext (op=...) at Objects/genericaliasobject.c:952        (Py_SETREF(gi->obj, NULL))
+#1  builtin_next                Python/bltinmodule.c:1776
+#2  _Py_BuiltinCallFast_StackRef Python/ceval.c:817
+#3  _PyEval_EvalFrameDefault     Python/generated_cases.c.h:2510    (next(it))
+...
+```
+
+ThreadSanitizer reports the same as a data race on `gi->obj` (`WARNING: ThreadSanitizer: data race
+... in ga_iternext`, exit 66).
+
+### Suggested fix
+
+Consume `gi->obj` atomically so exactly one thread takes it:
+
+```c
+PyObject *obj = _Py_atomic_exchange_ptr(&gi->obj, NULL);
+if (obj == NULL) {
+    PyErr_SetNone(PyExc_StopIteration);
+    return NULL;
+}
+gaobject *alias = (gaobject *)obj;
+PyObject *starred_alias = Py_GenericAlias(alias->origin, alias->args);
+if (starred_alias == NULL) {
+    Py_DECREF(obj);
+    return NULL;
+}
+((gaobject *)starred_alias)->starred = true;
+Py_DECREF(obj);
+return starred_alias;
+```
+
+(Or wrap the body in `Py_BEGIN_CRITICAL_SECTION(gi)`.) This matches the "consume once" semantics and
+keeps the GIL build unchanged.
+
+Per the iterator free-threading strategy (gh-124397), concurrent iteration may return duplicate or
+skipped values or raise — but it must not crash; this crashes. Distinct from gh-153298, which is the
+`GenericAlias.__parameters__` lazy-init race, not the iterator.
+
+### CPython versions tested on
+
+CPython `main` (3.16.0a0), free-threaded `--disable-gil` build.
+
+### Operating systems tested on
+
+Linux
+
+*(Found by `fusil --tsan`, a ThreadSanitizer fuzzer; crash confirmed by re-running the reproducer without a sanitizer on a plain free-threaded build. Draft and reproducer by Claude Code, minimized and reviewed by hand.)*
