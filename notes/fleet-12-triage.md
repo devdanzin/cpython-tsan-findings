@@ -44,15 +44,24 @@ new *fileable* bug — a healthy sign that fleets are now mostly re-finding know
   iterator, collapsed to `atomic | atomic` by the parser (both innermost frames are the atomic
   accessor). Same as fleet-11; the fix is the planned `tsan_dedup` pass to skip `_Py_atomic_*` frames
   (cross-repo contract change, deferred).
-- **`Modules/socketmodule.c:sock_accept_impl | sock_finalize`** (1 veh) — **FLAGGED for analysis.**
-  One thread is in `sock_accept_impl:3056` while another runs `sock_finalize:5544` reached via a
-  dealloc chain (`… BaseException_dealloc → tb_dealloc → frame_dealloc → subtype_dealloc →
-  PyObject_CallFinalizer`). i.e. a socket is being *finalized/deallocated* while another thread is
-  mid-`accept()` on it. That is either a real free-threading lifetime bug (socket destroyed while a
-  method runs on it — normally the bound call keeps `self` alive) or a fuzzer generated-code artifact
-  (a shared socket whose last ref is dropped during exception cleanup while another thread uses it
-  without its own ref). Not confidently attributable from 1 vehicle; **worth a deeper look if it
-  recurs.**
+- **`Modules/socketmodule.c:sock_accept_impl | sock_finalize`** (1 veh) — **INVESTIGATED
+  (2026-07-19): non-reproducible one-off, not actionable.** The racing address `0x72b000000000` is
+  TSan's synthetic **file-descriptor shadow**, so this is an **fd-close-while-in-use** race: one
+  thread's `sock_finalize:5544` (`set_sock_fd(s, INVALID)` + `close(fd)`, reached via a dealloc chain
+  `BaseException_dealloc → tb_dealloc → frame_dealloc → subtype_dealloc → PyObject_CallFinalizer`)
+  closes an fd that another thread's `sock_accept_impl:3056` (`accept4(get_sock_fd(s), …)`) is using.
+  Note the fleet vehicle's shared objects are **`AF_*` enum constants + the module — NOT a socket**,
+  so the raced socket is *transient* (created by concurrent op-c module-function calls). Findings:
+  (1) **the vehicle does NOT reproduce the socket race — 0/24 replays** (it reliably produces 6–10
+  *other* races/run, exit 66, but never this one); (2) **three synthetic repros failed** — explicit
+  `close()` during `accept()`, a second socket sharing the fd via `socket(fileno=…)` deallocated
+  during `accept()`, and a blocking-`accept()` variant — all 0 races (CPython's `close`/`accept`
+  serialize fine in the direct cases). Because the vehicle does not reproduce the target race,
+  **shrinkray is not applicable** (no reliable "interesting" predicate to minimize against).
+  Conclusion: a very rare timing coincidence under extreme concurrency (a transient socket
+  dealloc'd via exception-traceback cleanup while another worker's `accept4` was mid-flight on a
+  related fd) — most likely a fuzzer artifact rather than a systemic CPython bug. **Not fileable
+  (can't reproduce/minimize); revisit only if a future fleet reproduces it at a workable rate.**
 - **`SEGV addr=0x? pc=0x…4418`** (1 veh) — an unsymbolized SEGV in an `_lsprof` vehicle
   (`_lsprof-cpu_load-segfault`); most likely the lsprof-state (TSAN-0008) cascade. Build-specific pc,
   not folded.
@@ -68,5 +77,5 @@ TSAN-0039 (59), TSAN-0038 (51), TSAN-0037 (43), TSAN-0026 (36), TSAN-0040 (15).
 Nothing new to file from this fleet. `locale.localeconv()` (TSAN-0047 / #127081) and the
 `io.IncrementalNewlineDecoder` race (TSAN-0046 / #144777) are already tracked; the `csv.reader`
 `line_num` race (TSAN-0048) is value-benign and not worth a filing. The **socket `accept` vs
-`finalize`** race is the one open question — flagged for deeper analysis if it recurs in a later
-fleet.
+`finalize`** race was **investigated and found non-reproducible** (0/24 vehicle replays, 3 failed
+synthetics) — a rare fd-close-while-in-use timing coincidence, not actionable; not filed.
