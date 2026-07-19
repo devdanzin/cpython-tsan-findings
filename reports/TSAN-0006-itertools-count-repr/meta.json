@@ -8,7 +8,8 @@
     "Modules/itertoolsmodule.c:count_nextlong | Modules/itertoolsmodule.c:count_repr",
     "Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawAlloc",
     "Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawFree",
-    "Objects/longobject.c:long_to_decimal_string_internal | Objects/obmalloc.c:_PyMem_DebugRawFree"
+    "Objects/longobject.c:long_to_decimal_string_internal | Objects/obmalloc.c:_PyMem_DebugRawFree",
+    "Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawAlloc"
   ],
   "sites": [
     "Modules/itertoolsmodule.c count_repr:3612 (plain read of lz->cnt in fast-mode repr branch)",
@@ -54,5 +55,6 @@
     "fleet-02 variant: the count_next CAS write-side vs count_repr read (same race, parser picked the atomic frame)"
   ],
   "gist_url": "https://gist.github.com/devdanzin/db21f2b29ab7572ce6c111b57b3cea5c",
-  "umbrella_issue": 153852
+  "umbrella_issue": 153852,
+  "fleet10_note": "Added the generic-shaped UAF face `Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawAlloc` (fleet-10, 1 veh). Same count slow-mode use-after-free downstream of the #153917 residual: count_repr borrows lz->long_cnt and PyObject_Repr's it (-> _PyLong_DigitCount / long_to_decimal_string) while count_nextlong replaces long_cnt and the next() caller frees the old int, whose storage the allocator (_PyMem_DebugRawAlloc) then reuses. CAVEAT (as with the other generic faces): verify count_repr is on the stack before trusting this label -- confirmed present here (read side frame #8 count_repr:3696)."
 }

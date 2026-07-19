@@ -1,0 +1,35 @@
+{
+  "id": "TSAN-0042",
+  "slug": "groupby-shared-object",
+  "title": "itertools.groupby: a shared groupby iterator advances gbo->currkey/currvalue/currgrouper non-atomically (groupby_next / _grouper_create, Modules/itertoolsmodule.c)",
+  "description": "itertools.groupby keeps its cross-call state -- currkey, currvalue, tgtkey, and the current child grouper (currgrouper) -- in plain fields on the groupbyobject with no per-object synchronization. When a single groupby iterator is shared across threads (e.g. list(gb) driven from several workers), groupby_next (Modules/itertoolsmodule.c:~537) mutates that shared state (and _grouper_create allocates/links the child grouper) while another thread's groupby_next / _grouper_next reads or writes it -> data race on the groupby cursor. This is the shared stateful-itertools-object class (like count() / TSAN-0006), not the sequence-iterator-cursor class.",
+  "signatures": [
+    "Modules/itertoolsmodule.c:groupby_next | Modules/itertoolsmodule.c:groupby_next",
+    "Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:groupby_next",
+    "Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:_grouper_next"
+  ],
+  "sites": [
+    "Modules/itertoolsmodule.c groupby_next:~537 (WRITE gbo->currkey / currvalue / tgtkey / currgrouper while advancing the shared groupby)",
+    "Modules/itertoolsmodule.c _grouper_create (allocate + link the child grouper to the shared groupby) and _grouper_next (the child grouper reads gbo->currkey/currvalue) -- the racing accessors"
+  ],
+  "race_kind": "shared stateful-iterator object: non-atomic read/write of the groupby object's cross-call fields (currkey/currvalue/tgtkey/currgrouper) across threads, with no per-object critical section. Same class as itertools.count (TSAN-0006); distinct from the sequence-iterator cursor family.",
+  "shared_state": "groupbyobject fields currkey, currvalue, tgtkey, currgrouper (and the parent<->child grouper linkage) on a single shared groupby",
+  "severity": "moderate (a data race on the group cursor -> mis-grouped / duplicated / lost groups, or refcount trouble on currkey/currvalue exchanged without locking -> possible crash under concurrency). Sharing one groupby across threads is unusual (lower real-world priority), but itertools declares no per-object locking here.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads each doing list(gb) on ONE shared itertools.groupby(range(8192)), x500 rounds) exits 66 on the debug-ft-nojit-tsan build; TSan reports _grouper_create racing groupby_next. Fleet-10 drove the groupby_next self-race face (1 veh).",
+  "suggested_fix": "Take the groupby object's per-object critical section (Py_BEGIN_CRITICAL_SECTION(gbo)) over groupby_next's read-modify-write of currkey/currvalue/tgtkey/currgrouper (and coordinate _grouper_next's reads of the parent), as the FT hardening did for other stateful itertools iterators. The parent<->child grouper handoff needs to be atomic w.r.t. concurrent advances.",
+  "status": "drafted",
+  "upstream_issue": null,
+  "found_date": "2026-07-18",
+  "found_in": "fusil-tsan_fleet_10",
+  "vehicles": 1,
+  "vehicle_examples": [
+    "inst-03/itertools-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
+  "related_issues": ["cpython#153908"],
+  "related": "Shared stateful-itertools-object class, same as itertools.count TSAN-0006 (#153908). The op-h/shared-object path (P3.1) shares the groupby. Distinct from the sequence-iterator cursor family (TSAN-0037/0038/0039/0040/0026).",
+  "notes": "First fleet capture of a shared itertools.groupby race. Candidate for an upstream filing (or grouping with the itertools FT-hardening effort) -- awaiting maintainer go-ahead. Cataloged now so fleets dedupe it; records the groupby_next self-race and the _grouper_create/_grouper_next child-grouper faces."
+}

@@ -1,0 +1,36 @@
+{
+  "id": "TSAN-0040",
+  "slug": "set-iterator-shared-race",
+  "title": "set: setiter_iternext advances a shared set iterator's cursor (si_used/len/index) non-atomically vs setiter_len's read (Objects/setobject.c)",
+  "description": "The set iterator (setiterobject in Objects/setobject.c, returned by iter(set)/iter(frozenset)) keeps its position in plain fields (si_used snapshot + len countdown + internal table index) with no synchronization. When a single set iterator is shared across threads, setiter_iternext (setobject.c:~1093) advances that state while setiter_len (the __length_hint__ slot, setobject.c:1063) plainly reads it -> data race on the cursor. This is the set form of the same builtin-iterator shared-cursor defect as the str (cpython#153928 / TSAN-0038), bytes (TSAN-0037), struct (cpython#154013 / TSAN-0039), and dict (TSAN-0026) iterators. Surfaced by fusil's --tsan shared-iterator op (PR #211/#213): op h shares one iter(set(range(4096))) by reference, some workers advancing it via next() and some reading its cursor via operator.length_hint.",
+  "signatures": [
+    "Objects/setobject.c:setiter_iternext | Objects/setobject.c:setiter_len",
+    "Objects/setobject.c:setiter_iternext | Objects/setobject.c:setiter_iternext"
+  ],
+  "sites": [
+    "Objects/setobject.c setiter_iternext:~1093 (WRITE/advance the shared cursor: si->len countdown and the table scan index; the non-atomic advance the fleet's next() drives)",
+    "Objects/setobject.c setiter_len:1063 (READ si->len for __length_hint__, driven by the fleet's operator.length_hint reader)"
+  ],
+  "race_kind": "shared-iterator state: non-atomic cursor read/write on a single shared set iterator -> data race. A builtin C iterator's per-iteration state mutated with no per-object critical section (same class as TSAN-0037 bytes / TSAN-0038 str / TSAN-0039 struct / TSAN-0026 dict).",
+  "shared_state": "setiterobject fields (si_used snapshot, len countdown, internal hash-table scan index, and its reference to the source set) on a single shared iterator",
+  "severity": "moderate (a data race on the cursor -> mis-stepped / duplicated / skipped elements, or a stale si_used consistency check, under concurrency). Sharing one iterator across threads is unusual (lower real-world priority), but setobject declares no per-iterator locking.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads, half advancing one shared iter(set(range(4096))) via next(), half reading its cursor via operator.length_hint) exits 66 on the debug-ft-nojit-tsan build; observed the setiter_iternext self-race face on the isolated repro. Fleet-10 drove both the setiter_len face (6 veh) via the length_hint reader.",
+  "suggested_fix": "Same as the str/bytes/struct iterators: make the set-iterator's countdown/index an atomic load/store, or take a per-iterator critical section over setiter_iternext / setiter_len. The whole builtin sequence/collection-iterator family shares this shape.",
+  "status": "drafted",
+  "upstream_issue": null,
+  "found_date": "2026-07-18",
+  "found_in": "fusil-tsan_fleet_10",
+  "vehicles": 6,
+  "vehicle_examples": [
+    "inst-01/copy-warning_threadsanitizer_data_race-tsanNEW",
+    "inst-01/ntpath-warning_threadsanitizer_data_race-tsanNEW",
+    "inst-02/pprint-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
+  "related_issues": ["cpython#153928", "cpython#154013"],
+  "related": "Same builtin-iterator shared-cursor class as TSAN-0037 (bytes striter_next), TSAN-0038 (str unicode iter / #153928), TSAN-0039 (struct unpackiter / #154013), and TSAN-0026 (dict iterator). The op-h iterator pool (P3.1) is what shares these.",
+  "notes": "First fleet capture of the set iterator race (fusil op-h shares iter(set(...))). Candidate for an upstream filing (or an addition to the builtin-iterator family umbrella #153852) -- awaiting maintainer go-ahead. Cataloged now so fleets dedupe it; records both the length_hint (setiter_len) face and the self-race face."
+}

@@ -10,7 +10,8 @@
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_load_ssize_relaxed | Objects/dictobject.c:dictiter_iternextitem_lock_held",
     "Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:dictiter_iternextitem_lock_held",
     "Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_len",
-    "Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_iternext_threadsafe"
+    "Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_iternext_threadsafe",
+    "Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_iternextkey"
   ],
   "sites": [
     "Objects/dictobject.c dictiter_iternext_threadsafe:6043 (PLAIN read of ma_values via _PyDict_HasSplitTable(d) == ((d)->ma_values != NULL))",

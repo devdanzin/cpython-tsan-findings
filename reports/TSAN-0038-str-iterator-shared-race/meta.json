@@ -5,7 +5,9 @@
   "description": "The str iterator (unicodeiterobject / unicode_ascii_iter_next in Objects/unicodeobject.c) keeps its cursor in a plain struct field it->it_index and its source in it->it_seq, with no synchronization. When a single str iterator is shared across threads, unicode_ascii_iter_next reads+writes it->it_index (:14983) with no atomicity while unicodeiter_len (the __length_hint__ slot, :14997) plainly reads the same it->it_index -> data race on the cursor; and on exhaustion two threads can both run the it_seq = NULL / Py_DECREF(seq) path -> double-DECREF / use-after-free. This is the str form of the exact defect johng filed as cpython#153928 (which we reproduced and commented on); TSAN-0037 is the byte-for-byte-identical bytes-iterator (striter_next) form. Surfaced by fusil's --tsan shared-iterator op (PR #211/#213): op h shares one iter('A'*4096) by reference across workers, some advancing it via next() (writer) and some reading its cursor via operator.length_hint (unicodeiter_len).",
   "signatures": [
     "Objects/unicodeobject.c:unicode_ascii_iter_next | Objects/unicodeobject.c:unicode_ascii_iter_next",
-    "Objects/unicodeobject.c:unicode_ascii_iter_next | Objects/unicodeobject.c:unicodeiter_len"
+    "Objects/unicodeobject.c:unicode_ascii_iter_next | Objects/unicodeobject.c:unicodeiter_len",
+    "Objects/unicodeobject.c:unicodeiter_next | Objects/unicodeobject.c:unicodeiter_next",
+    "Objects/unicodeobject.c:unicodeiter_len | Objects/unicodeobject.c:unicodeiter_next"
   ],
   "sites": [
     "Objects/unicodeobject.c unicode_ascii_iter_next:14983 (WRITE it->it_index: the non-atomic cursor advance the fleet's next() drives)",
@@ -28,5 +30,5 @@
   "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
   "related_issues": ["cpython#153928"],
   "related": "cpython#153928 (johng) IS this bug -- the str iterator (unicode_ascii_iter_next) it_index race; we reproduced + commented on it. TSAN-0037 is the identical bytes-iterator (striter_next) form. TSAN-0039 is the struct.iter_unpack form (cpython#154013). The dict-iterator shared-cursor face folds to TSAN-0026.",
-  "notes": "TSAN-0037's notes predicted this: 'the str iterator did NOT trip in fleet-06 (0 dirs) -- bytes dominated'. In fleet-08 (first fleet after Phase-4 A-E: roles + length_hint reader) the str iterator finally tripped (55 veh). Not a separate filing -- it IS #153928; cataloged so fleets dedupe it and to record the length_hint (unicodeiter_len) face. Candidate to add to the #153928 thread as confirmation that fusil now reproduces it directly."
+  "notes": "TSAN-0037's notes predicted this: 'the str iterator did NOT trip in fleet-06 (0 dirs) -- bytes dominated'. In fleet-08 (first fleet after Phase-4 A-E: roles + length_hint reader) the str iterator finally tripped (55 veh). Not a separate filing -- it IS #153928; cataloged so fleets dedupe it and to record the length_hint (unicodeiter_len) face. Candidate to add to the #153928 thread as confirmation that fusil now reproduces it directly. FLEET-10 (2026-07-18): the GENERAL (non-ASCII) unicode iterator tripped too -- `unicodeiter_next | unicodeiter_next` (self-race) and `unicodeiter_len | unicodeiter_next` -- folded here as the same it_index/it_seq non-atomicity in the sibling `unicodeiter_*` path (unicode_ascii_iter_* is only the ASCII fast path; the general path has the identical defect). Same bug/#153928, just the non-ASCII code path."
 }

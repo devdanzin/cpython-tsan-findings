@@ -1,0 +1,38 @@
+{
+  "id": "TSAN-0041",
+  "slug": "elementtree-extra-lazy-init",
+  "title": "_elementtree: concurrent access to a shared Element lazily initializes self->extra (create_extra) with no lock -> write/write + write/read data race (Modules/_elementtree.c)",
+  "description": "xml.etree.ElementTree Element stores its attributes + children in a lazily-allocated `ElementObjectExtra` struct at self->extra, created on first need. create_extra (Modules/_elementtree.c:274) does `self->extra = PyMem_Malloc(...)` with NO per-object critical section, and its callers guard it with an unsynchronized `if (!self->extra) create_extra(self, ...)` (e.g. element_attrib_getter, the `.attrib` getter, _elementtree.c:2083). When a single Element is shared across threads and more than one first-touches it (reads .attrib, calls len(), appends, etc.), two threads both observe self->extra == NULL, both run create_extra, and both WRITE self->extra -> a write/write data race (and a leak: one malloc'd extra is overwritten and orphaned). The write also races concurrent readers of self->extra / self->extra->length (element_length) and clear_extra. This is a lazy-init-without-locking free-threading bug in the _elementtree C accelerator, distinct from the builtin-iterator cursor family.",
+  "signatures": [
+    "Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_length",
+    "Modules/_elementtree.c:clear_extra | Modules/_elementtree.c:create_extra",
+    "Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_attrib_getter"
+  ],
+  "sites": [
+    "Modules/_elementtree.c create_extra:274 (WRITE self->extra = PyMem_Malloc(sizeof(ElementObjectExtra)); no critical section)",
+    "Modules/_elementtree.c element_attrib_getter:2083 (the `.attrib` getter: unsynchronized `if (!self->extra) create_extra(self, NULL)` lazy init)",
+    "Modules/_elementtree.c element_length (READ self->extra / self->extra->length for __len__) and clear_extra (frees/reads self->extra) -- the racing accessors"
+  ],
+  "race_kind": "lazy initialization without synchronization: an unlocked `if (!self->extra) create_extra(...)` double-initializes / races the self->extra pointer across threads (write/write + write/read + leak). NOT the iterator-cursor class -- a shared mutable-object field with no per-object critical section.",
+  "shared_state": "ElementObject.extra (the lazily-allocated ElementObjectExtra* holding attrib + children[]) on a single shared Element",
+  "severity": "moderate-to-high (write/write on a heap pointer -> leak of one ElementObjectExtra at minimum, and a torn/overwritten self->extra -> potential use of a half-initialized or freed extra struct -> attribute/child corruption or crash under concurrency). Element is a common shared object (a parsed tree shared across worker threads), so the sharing pattern is realistic -- higher real-world priority than the shared-iterator races.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "deterministic: repro.py (8 threads each reading `.attrib` and len() on ONE freshly-created shared Element whose extra is still NULL, x200 rounds) exits 66 on the debug-ft-nojit-tsan build; TSan reports create_extra:274 as the write, reached via element_attrib_getter. Fleet-10 independently drove the create_extra|element_length and clear_extra|create_extra faces (3 veh).",
+  "suggested_fix": "Take the Element's per-object critical section (Py_BEGIN_CRITICAL_SECTION(self)) around the `if (!self->extra) create_extra(...)` lazy-init (and re-check self->extra inside it), in every getter/mutator that lazily creates extra (element_attrib_getter, element_length/subscript, SubElement/append, set, etc.). Or make the lazy init a one-shot compare-exchange on self->extra. The bug is the check-then-create being non-atomic across all these entry points.",
+  "status": "drafted",
+  "upstream_issue": null,
+  "found_date": "2026-07-18",
+  "found_in": "fusil-tsan_fleet_10",
+  "vehicles": 3,
+  "vehicle_examples": [
+    "inst-01/_elementtree-warning_threadsanitizer_data_race-tsanNEW",
+    "inst-01/_elementtree-warning_threadsanitizer_data_race-tsanNEW-2",
+    "inst-02/_elementtree-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer)",
+  "confirmed_unfixed_on": "3.16.0a0 (fleet build)",
+  "related_issues": [],
+  "related": "Distinct from the builtin-iterator cursor family (TSAN-0037/0038/0039/0040/0026). Closest relatives are other lazy-init-without-lock FT bugs. _elementtree has many `if (!self->extra) create_extra(...)` call sites -> the fix must cover all of them.",
+  "notes": "HIGH-VALUE candidate for an upstream filing (a real _elementtree free-threading data race + leak on a realistically-shared object, C accelerator). Awaiting maintainer go-ahead before filing (outward-facing). The isolated repro is minimal (shared Element + concurrent .attrib/len)."
+}

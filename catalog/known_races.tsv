@@ -6,6 +6,7 @@ TSAN-0004	Modules/cjkcodecs/_codecs_cn.c:hz_decode_reset | Objects/longobject.c:
 TSAN-0004	Modules/cjkcodecs/_codecs_iso2022.c:iso2022_decode_reset | Objects/longobject.c:_PyLong_FromByteArray
 TSAN-0005	Modules/_decimal/_decimal.c:dec_hash | Modules/_decimal/_decimal.c:dec_hash
 TSAN-0006	Include/cpython/pyatomic_gcc.h:_Py_atomic_compare_exchange_ssize | Modules/itertoolsmodule.c:count_repr
+TSAN-0006	Include/internal/pycore_long.h:_PyLong_DigitCount | Objects/obmalloc.c:_PyMem_DebugRawAlloc
 TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawAlloc
 TSAN-0006	Include/object.h:_Py_TYPE_impl | Objects/obmalloc.c:_PyMem_DebugRawFree
 TSAN-0006	Modules/itertoolsmodule.c:count_nextlong | Modules/itertoolsmodule.c:count_repr
@@ -70,6 +71,7 @@ TSAN-0019	Modules/_decimal/_decimal.c:_decimal_Context_clear_flags_impl | Module
 TSAN-0019	Modules/_decimal/_decimal.c:_decimal_Context_clear_flags_impl | Modules/_decimal/_decimal.c:context_repr
 TSAN-0019	Modules/_decimal/_decimal.c:_decimal_Context_clear_traps_impl | Modules/_decimal/_decimal.c:context_copy
 TSAN-0019	Modules/_decimal/_decimal.c:_decimal_Context_clear_traps_impl | Modules/_decimal/_decimal.c:context_repr
+TSAN-0019	Modules/_decimal/_decimal.c:_decimal_Context_clear_traps_impl | Objects/typeobject.c:type_call
 TSAN-0019	Modules/_decimal/_decimal.c:_decimal_Decimal_quantize_impl | Modules/_decimal/_decimal.c:dec_addstatus
 TSAN-0019	Modules/_decimal/_decimal.c:_decimal_Decimal_to_integral_value_impl | Modules/_decimal/_decimal.c:dec_addstatus
 TSAN-0019	Modules/_decimal/_decimal.c:context_repr | Modules/_decimal/_decimal.c:dec_addstatus
@@ -93,6 +95,7 @@ TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ptr_release | Objects/
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:dictiter_iternextitem_lock_held
 TSAN-0026	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ssize_relaxed | Objects/dictobject.c:get_index_from_order
 TSAN-0026	Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_iternext_threadsafe
+TSAN-0026	Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_iternextkey
 TSAN-0026	Objects/dictobject.c:dictiter_iternext_threadsafe | Objects/dictobject.c:dictiter_len
 TSAN-0027	Objects/typeobject.c:add_subclass | Objects/typeobject.c:clear_tp_subclasses
 TSAN-0028	Include/cpython/pyatomic_gcc.h:_Py_atomic_store_ullong_relaxed | Modules/_threadmodule.c:rlock_repr
@@ -129,5 +132,15 @@ TSAN-0037	Objects/bytesobject.c:striter_len | Objects/bytesobject.c:striter_next
 TSAN-0037	Objects/bytesobject.c:striter_next | Objects/bytesobject.c:striter_next
 TSAN-0038	Objects/unicodeobject.c:unicode_ascii_iter_next | Objects/unicodeobject.c:unicode_ascii_iter_next
 TSAN-0038	Objects/unicodeobject.c:unicode_ascii_iter_next | Objects/unicodeobject.c:unicodeiter_len
+TSAN-0038	Objects/unicodeobject.c:unicodeiter_len | Objects/unicodeobject.c:unicodeiter_next
+TSAN-0038	Objects/unicodeobject.c:unicodeiter_next | Objects/unicodeobject.c:unicodeiter_next
 TSAN-0039	Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_iternext
 TSAN-0039	Modules/_struct.c:unpackiter_iternext | Modules/_struct.c:unpackiter_len
+TSAN-0040	Objects/setobject.c:setiter_iternext | Objects/setobject.c:setiter_iternext
+TSAN-0040	Objects/setobject.c:setiter_iternext | Objects/setobject.c:setiter_len
+TSAN-0041	Modules/_elementtree.c:clear_extra | Modules/_elementtree.c:create_extra
+TSAN-0041	Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_attrib_getter
+TSAN-0041	Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_length
+TSAN-0042	Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:_grouper_next
+TSAN-0042	Modules/itertoolsmodule.c:_grouper_create | Modules/itertoolsmodule.c:groupby_next
+TSAN-0042	Modules/itertoolsmodule.c:groupby_next | Modules/itertoolsmodule.c:groupby_next
