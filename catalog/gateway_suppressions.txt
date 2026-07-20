@@ -49,3 +49,21 @@ race:dictiter_len
 # --- set iterator (TSAN-0040 = cpython#144356; value-benign per gh-124397) ---
 race:setiter_iternext
 race:setiter_len
+
+# --- range iterator (value-benign per gh-124397; direct sibling of the cursor entries above --
+#     rangeiter_next non-atomic index vs rangeiter_len (length_hint). Was the missing builtin in
+#     the shared-iterator set; dominated the tokenizers_06 extension hunt. No standalone issue. ---
+race:rangeiter_next
+race:rangeiter_len
+
+# --- generator concurrent resume (cpython#120321 "SIGSEGV with generators in free-threaded
+#     build"): two threads next()/send() into ONE shared generator race gi_frame_state. Known,
+#     filed. ---
+race:gen_send_ex2
+
+# --- string interning / immortalization (cpython#128137 PyUnicode_InternFromString race, closed;
+#     #113956 "_Py_SetImmortal must run on the allocating thread"). Triggered here by concurrent
+#     setattr() interning attribute-name strings. NOTE: _Py_SetImmortalUntracked is a common helper
+#     -- this is a deliberately-aggressive gateway pattern that can over-suppress a genuinely-new
+#     immortalization race; experiment/extension-hunt fleets only. ---
+race:_Py_SetImmortalUntracked
