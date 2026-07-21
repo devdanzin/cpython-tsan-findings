@@ -1,0 +1,36 @@
+{
+  "id": "TSAN-0055",
+  "slug": "memoryview-iter-double-decref",
+  "title": "memoryview: a shared memoryview iterator double-DECREFs it_seq in the exhaustion path -> use-after-free (memoryiter_next, Objects/memoryobject.c:3641-3642)",
+  "description": "memoryiter_next (Objects/memoryobject.c) reads `PyMemoryViewObject *seq = it->it_seq` unguarded (:3623) and, on exhaustion, runs `it->it_seq = NULL; Py_DECREF(seq);` (:3641-3642) with NO critical section anywhere in the function. Two threads advancing the SAME memoryview iterator to exhaustion both read the same non-NULL seq and both Py_DECREF(seq) -> the memoryview's refcount is dropped twice -> use-after-free. This is the memoryview-iterator sibling of the dict-iterator double-DECREF TSAN-0053 (cpython#154130) and set-iterator double-DECREF TSAN-0054 (cpython#144357); it is listed as 'same shape (not yet tripped)' in the exhaustion-double-DECREF class writeup and is now tripped.",
+  "signatures": [
+    "Objects/memoryobject.c:memoryiter_next | Objects/memoryobject.c:memoryiter_next"
+  ],
+  "signature_note": "The single signature `memoryiter_next | memoryiter_next` covers BOTH races the function exhibits: (1) the exhaustion double-DECREF (read it_seq :3623 vs clear it_seq :3641 + Py_DECREF :3642) -- the crash face cataloged here; and (2) the value-benign it_index cursor race (read it_index<it_length :3628 vs it_index++ :3633) -- the memoryview member of the gh-120496/gh-124397 cursor family. fusil tsan_dedup keys on file:func, so both faces produce the same site-pair; the finding is classified by its worst face (the crash).",
+  "sites": [
+    "Objects/memoryobject.c memoryiter_next:3641-3642 -- `it->it_seq = NULL; Py_DECREF(seq);` non-atomically drops the iterator's one owning ref to the memoryview; NO critical section. Two concurrent next() callers both do it.",
+    "Objects/memoryobject.c memoryiter_next:3623 -- `seq = it->it_seq;` plain read of the reference the exhaustion path clears+decrefs",
+    "Objects/memoryobject.c memoryiter_next:3628/3633 -- `it->it_index < it->it_length` read vs `it->it_index++` write: the value-benign cursor race (duplicate/skip element), same shape as TSAN-0037/0044"
+  ],
+  "race_kind": "shared iterator exhaustion: non-atomic clear+DECREF of it->it_seq (the iterator's single owning reference to the memoryview) across threads -> double-DECREF / use-after-free (refcount underflow). Memory-unsafe (crosses the gh-124397 'must not crash' bar). The memoryview analogue of TSAN-0053 (dict) / TSAN-0054 (set); memoryiter_next uniquely takes NO critical section at all. The it_index cursor race in the same function is the value-benign sibling.",
+  "shared_state": "memoryiterobject.it_seq (the owning reference to the source memoryview) on a single shared memoryview iterator; the referenced memoryview's refcount",
+  "severity": "HIGH (CRASHES): the double-DECREF drives the memoryview's refcount below zero. repro.py (8 threads sharing one memoryview iterator, refilled on exhaustion) aborts 4/4 on debug-ft-nojit within seconds with `_Py_NegativeRefcount` at memoryobject.c:3642 ('<object ... is freed>'), and SEGVs on release-ft-nojit-asan inside memoryiter_next (memoryobject.c:3629, dereferencing the freed memoryview) -- a genuine UAF, NOT a debug-only tripwire. Reachable from pure Python (iterate a shared memoryview from threads). Free-threaded build only.",
+  "reproduced": true,
+  "crashes": true,
+  "repro": "repro.py",
+  "crash_backtrace": "crash_backtrace.txt",
+  "repro_reliability": "debug-ft-nojit 4/4 within seconds (`_Py_NegativeRefcount` @ memoryobject.c:3642, or SIGSEGV); release-ft-nojit-asan SEGV in memoryiter_next @ memoryobject.c:3629 (genuine UAF on a non-debug build). Plain release-ft-nojit-o0 (no sanitizer) did not fault in a few runs (UAF where the freed block isn't immediately reused). Surfaced by fusil --tsan on a free-threaded cryptography TSan fleet (fusil-cryptography_02): the fuzzer shared a memoryview and iterated it (op h) -- the module is incidental, the race is pure CPython (all frames in memoryiter_next/builtin_next/_PyEval_EvalFrameDefault, zero cryptography frames).",
+  "suggested_fix": "Serialize concurrent next() on the SAME iterator and drop the owning ref exactly once -- mirror cpython#144357 (sets): make exhaustion sticky and move the `Py_DECREF(it_seq)` out of tp_iternext into tp_dealloc, and/or wrap the iterator body in a per-iterator critical section. memoryiter_next currently has NO critical section at all, so it also needs the cursor advance (it_index) protected.",
+  "status": "reported",
+  "upstream_issue": null,
+  "related_issues": ["cpython#154130", "cpython#144356", "cpython#144357", "cpython#124397", "cpython#120496", "cpython#153852"],
+  "prior_art": "Not separately filed. The exhaustion double-DECREF class is tracked via dict TSAN-0053/cpython#154130 (filed standalone) and set TSAN-0054/cpython#144356 + open fix PR #144357 (stalled since 2026-05). The value-benign it_index cursor face is covered by gh-120496 (Sequence iterator thread-safety, CLOSED 'acceptable/must not crash') and the open gh-124397 (Strategy for Iterators in Free Threading). No memoryview-specific issue exists (tracker checked 2026-07-21). Best move = corroborate the class on gh-124397 / umbrella cpython#153852 with the memoryview crash reproducer, rather than a fresh filing.",
+  "found_date": "2026-07-21",
+  "found_in": "fusil-cryptography_02 (--tsan, free-threaded cryptography TSan fleet)",
+  "vehicles": 7,
+  "vehicle_examples": ["inst-01/python/cryptography_hazmat_primitives_serializa-warning_threadsanitizer_data_race-tsanNEW (serialization.ssh, memoryiter_next:3503|3508 cursor + 3498|3516 exhaustion faces)"],
+  "confirmed_build": "debug-ft-nojit (CPython 3.16.0a0, --disable-gil --with-pydebug, main@a1d580430c8); SEGVs on release-ft-nojit-asan -> NOT debug-only. Fleet build that surfaced it: tsan-cryptography (CPython 3.14t + TSan), where the fleet's memoryobject.c lines are 3498/3503/3508/3516 (older tree); canonical line numbers in this report are main@a1d580430c8 (3623/3628/3633/3641/3642).",
+  "confirmed_unfixed_on": "3.16.0a0 (main@a1d580430c8) and 3.14t (fleet build)",
+  "related": "Memoryview analogue of the dict-iterator (TSAN-0053) and set-iterator (TSAN-0054) exhaustion double-DECREFs; same `it_seq = NULL; Py_DECREF(seq)` shape. Distinct-but-same-function value-benign cursor race = the it_index member of the TSAN-0037/0044 family. See notes/sequence-iterator-exhaustion-double-decref.md (memoryview row upgraded from 'not yet tripped' to TSAN-0055, CRASHES).",
+  "notes": "fusil --tsan surfaced it in fusil-cryptography_02 as 7 tsanNEW dirs with signature `memoryiter_next | memoryiter_next` (6 the cursor face 3503|3508, 1 the exhaustion face 3498|3516). All frames are pure CPython (memoryiter_next -> builtin_next -> _PyEval_EvalFrameDefault); cryptography is incidental (it exposes buffers, so op h shared a memoryview and iterated it). Two crash faces: throwaway memoryview -> immediate _Py_NegativeRefcount @ memoryobject.c:3642; a long-lived shared memoryview (refcount>1) would underflow silently until a later gc.collect()/access (the frozendict/frozenset-style GC-caught face of TSAN-0053/0054). Outward-facing corroboration awaiting go-ahead."
+}

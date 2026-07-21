@@ -181,3 +181,4 @@ TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlpa
 TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlparse.c:errorProcessor
 TSAN-0051	Objects/abstract.c:PyBuffer_Release | Objects/picklebufobject.c:picklebuf_raw
 TSAN-0052	Objects/templateobject.c:templateiter_next | Objects/templateobject.c:templateiter_next
+TSAN-0055	Objects/memoryobject.c:memoryiter_next | Objects/memoryobject.c:memoryiter_next

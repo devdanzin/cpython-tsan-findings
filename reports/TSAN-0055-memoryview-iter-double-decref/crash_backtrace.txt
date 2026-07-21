@@ -1,0 +1,38 @@
+# debug-ft-nojit (CPython 3.16.0a0, --disable-gil, --with-pydebug): double-DECREF -> negative refcount
+# repro.py, 8 threads sharing one memoryview iterator, PYTHON_GIL=0
+
+Objects/memoryobject.c:3642: _Py_NegativeRefcount: Assertion failed: object has negative ref count
+<object at 0x200201b1510 is freed>
+Fatal Python error: _PyObject_AssertFailed: _PyObject_AssertFailed
+Python runtime state: initialized
+
+Stack (most recent call first):
+  File "/home/danzin/.claude/jobs/ed971f05/tmp/repro_mv_final.py", line 8 in worker
+  File "/home/danzin/projects/python_build_matrix/builds/debug-ft-nojit/Lib/threading.py", line 1160 in run
+  File "/home/danzin/projects/python_build_matrix/builds/debug-ft-nojit/Lib/threading.py", line 1218 in _bootstrap_inner
+  File "/home/danzin/projects/python_build_matrix/builds/debug-ft-nojit/Lib/threading.py", line 1180 in _bootstrap
+
+# release-ft-nojit-asan: genuine UAF (not a debug tripwire) -- SEGV dereferencing the freed memoryview
+
+==3911824==ERROR: AddressSanitizer: SEGV on unknown address 0x03e8003bb090 (pc 0x7ffff7ca648c bp 0x7ffff7569750 sp 0x7ffff7569710 T2)
+==3911824==The signal is caused by a READ memory access.
+    #0 0x7ffff7ca648c in __pthread_kill_implementation nptl/pthread_kill.c:44:76
+    #1 0x7ffff7ca648c in __pthread_kill_internal nptl/pthread_kill.c:89:10
+    #2 0x7ffff7ca648c in pthread_kill nptl/pthread_kill.c:100:10
+    #3 0x7ffff7c45b7d in raise signal/../sysdeps/posix/raise.c:26:13
+    #4 0x7ffff7c45caf  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x45caf) (BuildId: 90ebd03ae9d9f42b23b4eb82fdf70352cf744198)
+    #5 0x555555a3f074 in memoryiter_next /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Objects/memoryobject.c:3629:9
+    #6 0x555555c7ec7a in builtin_next /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Python/bltinmodule.c:1776:11
+    #7 0x555555cac128 in _Py_BuiltinCallFast_StackRef /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Python/ceval.c:817:11
+    #8 0x555555cac128 in _PyEval_EvalFrameDefault /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Python/generated_cases.c.h:2510:35
+    #9 0x555555c88183 in _PyEval_EvalFrame /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/./Include/internal/pycore_ceval.h:122:16
+    #10 0x555555c88183 in _PyEval_Vector /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Python/ceval.c:2172:12
+    #11 0x555555935387 in _PyObject_VectorcallTstate /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/./Include/internal/pycore_call.h:144:11
+    #12 0x555555935387 in _PyObject_VectorcallPrepend /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Objects/call.c:855:20
+    #13 0x555555d1e31e in _PyObject_VectorcallTstate /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/./Include/internal/pycore_call.h:144:11
+    #14 0x555555d1e31e in context_run /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Python/context.c:731:29
+    #15 0x55555593196f in _PyObject_VectorcallTstate /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/./Include/internal/pycore_call.h:144:11
+    #16 0x55555593196f in PyObject_Vectorcall /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Objects/call.c:327:12
+    #17 0x555555c8939a in _Py_VectorCallInstrumentation_StackRefSteal /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Python/ceval.c:768:11
+    #18 0x555555cb267b in _PyEval_EvalFrameDefault /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/Python/generated_cases.c.h:1906:35
+    #19 0x555555c88183 in _PyEval_EvalFrame /home/danzin/projects/python_build_matrix/builds/release-ft-nojit-asan/./Include/internal/pycore_ceval.h:122:16

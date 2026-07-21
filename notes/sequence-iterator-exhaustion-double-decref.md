@@ -29,6 +29,7 @@ thread runs `*_iternext` at a time); the exhaustion paths predate free-threading
 | **tuple** | `tupleiter_next` | `tupleobject.c:1147` (`it_seq`) | same shape (not yet tripped) |
 | **list** | `listiter_next` / reversed | `listobject.c:4080, 4238` (`it_seq`) | same shape (not yet tripped) |
 | **generic seq** (`iter(obj)` on `__getitem__`) | `iter_iternext` | `iterobject.c:79` (`it_seq`) | same shape; cursor race = TSAN-0044 |
+| **memoryview** | `memoryiter_next` | `memoryobject.c:3641-3642` (`it_seq`) | **TSAN-0055**, CRASHES 4/4 debug-ft-nojit (`_Py_NegativeRefcount`), SEGV on release-ft-nojit-asan. **NO critical section anywhere in the function** (worse than dict/set). fusil `fusil-cryptography_02` |
 
 ## Two crash signatures, by the sequence's lifetime
 
