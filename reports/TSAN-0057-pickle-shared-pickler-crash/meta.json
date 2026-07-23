@@ -23,10 +23,11 @@
   "repro": "repro.py",
   "repro_reliability": "high: 6/6 crash on plain debug-ft-nojit (mix of _Py_NegativeRefcount SIGABRT and _Pickler_Write SIGSEGV), 4/4 on debug-ft-nojit-asan, exit-66 TSan data race on debug-ft-nojit-tsan. 4 dump() + 4 clear_memo() threads on one shared Pickler, N=30000.",
   "suggested_fix": "If concurrent Pickler use is to be crash-safe, take a per-Pickler critical section around dump()/clear_memo() and the memo-table + output-buffer mutators. Otherwise document that a Pickler/Unpickler instance must not be shared across threads without external locking.",
-  "status": "reported-pending",
+  "status": "wont-file (out of scope per maintainer stance)",
   "upstream_issue": null,
   "found_date": "2026-07-23",
   "found_in": "magalu_tsan (cloud --tsan fleet; session _pickle-warning_threadsanitizer_data_race-tsanNEW)",
+  "scope_decision": "DO NOT FILE. On the sibling Unpickler-memo issue cpython#150505 the pickle maintainers explicitly ruled sharing pickler/unpickler objects across threads out of scope: @kumaraditya303 'I don't think pickler objects are expected to work across threads'; @serhiy-storchaka 'I do not see what can be a reason of sharing pickler or unpickler objects between threads. Neither dump() nor load() can work concurrently, because they change the internal state (memo).' #150505 itself got only a narrow fix (the .memo assignment), not general shared-Pickler safety. So TSAN-0057 (concurrent dump()/clear_memo() on ONE shared Pickler) is a real crash but a scenario CPython does not intend to support. Kept in the catalog as documentation; not filed. NOTE: distinct from #149816 items 89/91, which are UAFs from pickling SHARED DATA (a dict/list mutated by another thread while one thread pickles it) -- a legitimate scenario -- not from sharing the Pickler object.",
   "vehicles": [
     "magalu_tsan/_pickle-warning_threadsanitizer_data_race-tsanNEW"
   ],

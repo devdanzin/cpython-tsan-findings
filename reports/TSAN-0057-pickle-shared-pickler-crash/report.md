@@ -75,7 +75,14 @@ print("done-pickle")
 
 ## Classification / scope
 
-This is the "shared mutable object with no per-object locking" class (cf. the `multidict` C hashtable, the shared-list races TSAN-0013/0014). It is **distinct from the known Unpickler-memo bug cpython#150505 / PR #150550**, which is the *Unpickler* memo (`_Unpickler_MemoPut`, a separate array); this is the *Pickler* `PyMemoTable`. Whether concurrent use of one `Pickler` across threads is a scenario CPython wants to make crash-safe is a maintainer call — but the manifestation here is memory-unsafety (double-DECREF / UAF), not merely undefined pickle output. `_pickle` is on the gh-116738 "audit all built-in modules for thread safety" list and is one of the modules named in cpython#149816.
+This is the "shared mutable object with no per-object locking" class (cf. the `multidict` C hashtable, the shared-list races TSAN-0013/0014). It is **distinct from the known Unpickler-memo bug cpython#150505 / PR #150550**, which is the *Unpickler* memo (`_Unpickler_MemoPut`, a separate array); this is the *Pickler* `PyMemoTable`.
+
+**Scope — DO NOT FILE.** On #150505 (the sibling Unpickler-memo race) the pickle maintainers explicitly ruled cross-thread sharing out of scope:
+
+> **@kumaraditya303:** "I don't think pickler objects are expected to work across threads."
+> **@serhiy-storchaka:** "I do not see what can be a reason of sharing pickler or unpickler objects between threads. Neither `dump()` nor `load()` can work concurrently, because they change the internal state (memo)."
+
+#150505 itself received only a narrow fix (the `.memo` assignment), not general shared-Pickler safety. So although the manifestation here is memory-unsafety (double-DECREF / UAF), a shared `Pickler` is a scenario CPython does not intend to support — this entry is kept as documentation, **not filed**. (Note: distinct from cpython#149816 items 89/91, which are UAFs from pickling *shared data* — a dict/list mutated by another thread while one thread pickles it — a legitimate scenario, not from sharing the Pickler object. `_pickle` is on the gh-116738 audit list.)
 
 ## Suggested fix
 
