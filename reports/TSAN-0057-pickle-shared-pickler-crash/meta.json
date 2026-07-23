@@ -1,0 +1,41 @@
+{
+  "id": "TSAN-0057",
+  "slug": "pickle-shared-pickler-crash",
+  "title": "A shared _pickle.Pickler corrupts its memo table and output buffer under concurrent dump()/clear_memo() (PyMemoTable_Clear vs _PyMemoTable_Lookup/PyMemoTable_Size), double-DECREF / SIGSEGV",
+  "description": "A Pickler object takes no per-object critical section, so one Pickler shared across threads races its internal PyMemoTable and output buffer. Pickler.clear_memo() -> PyMemoTable_Clear (Modules/_pickle.c:811) walks mt_table doing Py_XDECREF(me_key) (:816), then resets mt_used=0 (:818) and memset(mt_table,...) (:819). Concurrent Pickler.dump() -> dump -> save -> PyMemoTable_Get -> _PyMemoTable_Lookup reads mt_table / mt_table[i].me_key (:842,:848), reads mt_used via PyMemoTable_Size (:807), and memo_put may _PyMemoTable_ResizeTable (PyMem_Realloc mt_table, freeing the old array). Faces: (1) PyMemoTable_Clear's Py_XDECREF(me_key) races another memo op -> double-DECREF -> _Py_NegativeRefcount (refcount.h:520); (2) Clear's memset / resize's realloc races _PyMemoTable_Lookup's read of freed/zeroed table; (3) _Pickler_Write (:1106) two dump()s racing the shared output_buffer/framer. Memory-unsafe crash, not just wrong pickle output. Safe under the GIL. 'Shared mutable object with no per-object locking' class (cf. multidict, shared-list TSAN-0013/0014). Distinct from the Unpickler-memo bug #150505/PR#150550 (that is _Unpickler_MemoPut, a separate array).",
+  "signatures": [
+    "Modules/_pickle.c:PyMemoTable_Clear | Modules/_pickle.c:_PyMemoTable_Lookup",
+    "Modules/_pickle.c:PyMemoTable_Clear | Modules/_pickle.c:PyMemoTable_Size"
+  ],
+  "crash_signature": "refcount.h:_Py_NegativeRefcount object has negative ref count | Modules/_pickle.c:PyMemoTable_Clear (Py_XDECREF me_key)",
+  "sites": [
+    "Modules/_pickle.c PyMemoTable_Clear:810-821 (Py_XDECREF(mt_table[i].me_key) :816, mt_used=0 :818, memset(mt_table) :819)",
+    "Modules/_pickle.c _PyMemoTable_Lookup:840-860 (reads mt_table :842, mt_table[i].me_key :848)",
+    "Modules/_pickle.c PyMemoTable_Size:804-808 (reads mt_used :807)",
+    "Modules/_pickle.c PyMemoTable_Get:918 / save:4599 / dump:4811 / _pickle_Pickler_dump_impl:4892 (dump path reading the memo)",
+    "Modules/_pickle.c _Pickler_Write:1106 (shared output_buffer/framer, dump-vs-dump crash face)",
+    "Modules/_pickle.c _pickle_Pickler_clear_memo_impl:4856 (clear_memo path)"
+  ],
+  "race_kind": "shared mutable object (Pickler memo table + output buffer) with no per-object critical section; concurrent dump()/clear_memo() -> double-DECREF (negative refcount) / table UAF / output-buffer corruption. Has TSan data-race stanzas AND a crash face.",
+  "shared_state": "a single _pickle.Pickler's PyMemoTable (mt_table/mt_used/mt_mask, and the me_key refcounts) and its output_buffer/framer, mutated concurrently by dump()/clear_memo() from multiple threads",
+  "severity": "MEDIUM-HIGH (memory-safety, but requires deliberately sharing one Pickler across threads). NOT Py_DEBUG-only: crashes on plain debug-ft-nojit (no sanitizer) as SIGABRT (_Py_NegativeRefcount) and SIGSEGV (_Pickler_Write). Scope caveat: whether a shared Pickler must be crash-safe is a maintainer call; the finding is that the manifestation is memory corruption, not just undefined output.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "high: 6/6 crash on plain debug-ft-nojit (mix of _Py_NegativeRefcount SIGABRT and _Pickler_Write SIGSEGV), 4/4 on debug-ft-nojit-asan, exit-66 TSan data race on debug-ft-nojit-tsan. 4 dump() + 4 clear_memo() threads on one shared Pickler, N=30000.",
+  "suggested_fix": "If concurrent Pickler use is to be crash-safe, take a per-Pickler critical section around dump()/clear_memo() and the memo-table + output-buffer mutators. Otherwise document that a Pickler/Unpickler instance must not be shared across threads without external locking.",
+  "status": "reported-pending",
+  "upstream_issue": null,
+  "found_date": "2026-07-23",
+  "found_in": "magalu_tsan (cloud --tsan fleet; session _pickle-warning_threadsanitizer_data_race-tsanNEW)",
+  "vehicles": [
+    "magalu_tsan/_pickle-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:a1d580430c8, Jul 18 2026, Clang 21). Crash reproduced on debug-ft-nojit and debug-ft-nojit-asan at the same commit. Original fleet build /home/ubuntu/projects/3.16_ft_debug_tsan.",
+  "confirmed_unfixed_on": "heads/main:a1d580430c8 (Jul 18 2026)",
+  "notes": "Distinct from #150505 / PR #150550 (Unpickler _Unpickler_MemoPut, a different array). _pickle is on the gh-116738 audit list and is named in #149816's module list -- must check whether either already covers the Pickler PyMemoTable / a shared-Pickler stance before filing (a maintainer may consider concurrent single-Pickler use out of scope). Novelty/scope search with `gh api -X GET search/issues` (not `gh search`).",
+  "related_issues": [
+    {"num": 150505, "note": "Unpickler memo segfault (_Unpickler_MemoPut) + PR #150550. Same module family, DIFFERENT structure (Unpickler memo array, not Pickler PyMemoTable)."},
+    {"num": 149816, "note": "'22 free-threading race conditions' umbrella names _pickle among its modules -- check whether the Pickler memo is already covered."},
+    {"num": 116738, "note": "'Audit all built-in modules for thread safety' -- _pickle is on the list."}
+  ]
+}

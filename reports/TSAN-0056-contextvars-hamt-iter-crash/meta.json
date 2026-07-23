@@ -1,0 +1,41 @@
+{
+  "id": "TSAN-0056",
+  "slug": "contextvars-hamt-iter-crash",
+  "title": "A shared contextvars.Context (HAMT) iterator corrupts its cursor and dereferences a wild node under concurrent next() (hamt_iterator_next / hamt_iterator_bitmap_next), SIGSEGV",
+  "description": "Python/hamt.c's iterator keeps its entire traversal cursor -- i_nodes[] (borrowed node pointers, not INCREF'd), i_pos[], i_level -- inside the iterator object and mutates it on every next() with no critical section. hamt_baseiter_tp_iternext (:2479) calls hamt_iterator_next, which reads current = iter->i_nodes[iter->i_level] (:2194) and evaluates IS_BITMAP_NODE(current) = Py_TYPE(current) (:2196), while hamt_iterator_bitmap_next reads iter->i_nodes[level]/i_pos[level] and Py_SIZE(node) (:2092) and writes iter->i_level-- (:2097). Two threads advancing the SAME Context iterator desync i_level against i_nodes[], so a thread reads a stale/NULL/wild node pointer and derefs its type -> SIGSEGV. The HAMT iterator backs contextvars.Context iteration (iter(ctx)/keys()/values()/items()); a Context shared across threads and iterated concurrently hits it. Crosses the gh-124397 'C iterators must not crash' bar (duplicate/skipped entries would be acceptable; a SEGV is not). Sibling of the dict (TSAN-0053/#154130), set (TSAN-0054/#144357) and memoryview (TSAN-0055) shared-iterator crashes; the HAMT iterator predates free-threading and was never brought under that hardening.",
+  "signatures": [
+    "Python/hamt.c:hamt_baseiter_tp_iternext | Python/hamt.c:hamt_iterator_next",
+    "Python/hamt.c:hamt_iterator_bitmap_next | Python/hamt.c:hamt_iterator_next",
+    "Python/hamt.c:hamt_iterator_bitmap_next | Python/hamt.c:hamt_iterator_bitmap_next"
+  ],
+  "crash_signature": "SEGV Include/object.h:_Py_TYPE_impl",
+  "sites": [
+    "Python/hamt.c hamt_iterator_next:2185-2202 (reads i_level :2188, reads i_nodes[i_level] :2194, IS_BITMAP_NODE(current)=Py_TYPE(current) :2196)",
+    "Python/hamt.c hamt_iterator_bitmap_next:2083-2100 (reads i_nodes[level]/i_pos[level], Py_SIZE(node) :2092, writes i_level-- :2097)",
+    "Python/hamt.c hamt_iterator_init:2069-2081 (i_nodes hold BORROWED node pointers: 'we don't incref/decref nodes in i_nodes')",
+    "Python/hamt.c hamt_baseiter_tp_iternext:2479 (tp_iternext entry, no critical section)",
+    "Python/context.c context_run:731 (the crash backtrace advances the shared iterator under Context.run)"
+  ],
+  "race_kind": "shared-iterator cursor corruption -> wild/NULL node dereference (SIGSEGV). Has a TSan data-race stanza (hamt_iterator_next|hamt_iterator_next) AND a crash face.",
+  "shared_state": "the PyHamtIteratorState cursor (i_nodes[]/i_pos[]/i_level) embedded in a shared Context/HAMT iterator object, advanced concurrently by multiple threads with no synchronization; nodes are held borrowed",
+  "severity": "HIGH (memory-safety). NOT Py_DEBUG-only: reproduces as a raw SIGSEGV on the plain free-threaded no-sanitizer build (debug-ft-nojit), from a wild-pointer dereference (Py_TYPE/Py_SIZE of a stale i_nodes[] entry), independent of any assert. Crosses the gh-124397 'must not crash' bar for C iterators.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "high: 6/6 SIGSEGV on plain debug-ft-nojit (no sanitizer), 4/4 abort on debug-ft-nojit-asan (SEGV), exit-66 TSan data race on debug-ft-nojit-tsan, at NT=8 threads / ITERS=40000. 8 threads share one iter(ctx) over a 16-var Context, refilled on exhaustion.",
+  "suggested_fix": "Bring the HAMT iterator advance (hamt_iterator_next -> hamt_iterator_bitmap_next / hamt_iterator_array_next descent) under a per-iterator critical section, or make the i_level/i_pos/i_nodes cursor accesses atomic with a bounds/NULL check on the borrowed i_nodes[i_level] before dereferencing -- matching the dictiter/setiter hardening. Minimal change to satisfy gh-124397's must-not-crash contract (duplicate/skipped entries acceptable). The guard must span the whole descent because i_nodes holds borrowed pointers.",
+  "status": "reported-pending",
+  "upstream_issue": null,
+  "found_date": "2026-07-23",
+  "found_in": "magalu_tsan (cloud --tsan fleet; session contextvars-warning_threadsanitizer_data_race-tsanNEW)",
+  "vehicles": [
+    "magalu_tsan/contextvars-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:a1d580430c8, Jul 18 2026, Clang 21). Crash reproduced on debug-ft-nojit (plain free-threaded debug, no TSan) and debug-ft-nojit-asan at the same commit. Original fleet build /home/ubuntu/projects/3.16_ft_debug_tsan.",
+  "confirmed_unfixed_on": "heads/main:a1d580430c8 (Jul 18 2026)",
+  "notes": "Part of the gh-124397 shared-iterator-must-not-crash family. The HAMT iterator is the contextvars.Context iterator; unlike dictiter/setiter (already hardened with critical sections) it takes no critical section at all. Open hamt issues #148891 (crash in HAMT during GC) and #150178 (refcount leaks in hamt allocation failure) are unrelated (GC / alloc-failure, not concurrent iteration). Distinct from #149816's 22 races (different modules). Novelty verified with `gh api -X GET search/issues` (not `gh search`, which under-reports multi-word queries): no issue references hamt_iterator / Context-iterator concurrency.",
+  "related_issues": [
+    {"num": 124397, "note": "Umbrella: 'Strategy for Iterators in Free Threading'. Point 3 sets the must-not-crash contract this violates. Iterator-hardening tracker PR #148894."},
+    {"num": 154130, "note": "Sibling: dict iterator double-DECREF (TSAN-0053). Same shared-iterator-crash class, already filed."},
+    {"num": 144357, "note": "Sibling: set iterator (TSAN-0054), already fixed/tracked."}
+  ]
+}

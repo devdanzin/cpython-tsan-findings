@@ -182,3 +182,8 @@ TSAN-0050	Modules/expat/xmlparse.c:PyExpat_XML_ParseBuffer | Modules/expat/xmlpa
 TSAN-0051	Objects/abstract.c:PyBuffer_Release | Objects/picklebufobject.c:picklebuf_raw
 TSAN-0052	Objects/templateobject.c:templateiter_next | Objects/templateobject.c:templateiter_next
 TSAN-0055	Objects/memoryobject.c:memoryiter_next | Objects/memoryobject.c:memoryiter_next
+TSAN-0056	Python/hamt.c:hamt_baseiter_tp_iternext | Python/hamt.c:hamt_iterator_next
+TSAN-0056	Python/hamt.c:hamt_iterator_bitmap_next | Python/hamt.c:hamt_iterator_bitmap_next
+TSAN-0056	Python/hamt.c:hamt_iterator_bitmap_next | Python/hamt.c:hamt_iterator_next
+TSAN-0057	Modules/_pickle.c:PyMemoTable_Clear | Modules/_pickle.c:PyMemoTable_Size
+TSAN-0057	Modules/_pickle.c:PyMemoTable_Clear | Modules/_pickle.c:_PyMemoTable_Lookup

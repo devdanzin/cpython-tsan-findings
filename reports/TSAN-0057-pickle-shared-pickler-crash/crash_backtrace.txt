@@ -1,0 +1,76 @@
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==2686388==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x7b714c1b7cd0 bp 0x7771495fbb10 sp 0x7771495fbab0 T1)
+==2686388==The signal is caused by a READ memory access.
+==2686388==Hint: address points to the zero page.
+AddressSanitizer:DEADLYSIGNAL
+AddressSanitizer:DEADLYSIGNAL
+    #0 0x7b714c1b7cd0 in PyType_HasFeature /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/object.h:755:19
+    #1 0x7b714c1b7cd0 in PyBytes_AS_STRING /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/cpython/bytesobject.h:25:12
+    #2 0x7b714c1b7cd0 in _Pickler_Write /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Modules/_pickle.c:1106:14
+    #3 0x7b714c1b6f8b in dump /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Modules/_pickle.c:4811:13
+    #4 0x7b714c1e067b in _pickle_Pickler_dump_impl /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Modules/_pickle.c:4892:9
+    #5 0x7b714c1e067b in _pickle_Pickler_dump /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Modules/clinic/_pickle.c.h:73:20
+    #6 0x5e07499ecc73 in cfunction_vectorcall_FASTCALL_KEYWORDS_METHOD /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Objects/methodobject.c:481:24
+    #7 0x5e074989c3ef in _PyObject_VectorcallTstate /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/internal/pycore_call.h:144:11
+    #8 0x5e0749c880b9 in _Py_VectorCall_StackRefSteal /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/ceval.c:726:11
+    #9 0x5e0749caa109 in _PyEval_EvalFrameDefault /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/generated_cases.c.h:4559:35
+    #10 0x5e0749c87ad3 in _PyEval_EvalFrame /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/internal/pycore_ceval.h:122:16
+    #11 0x5e0749c87ad3 in _PyEval_Vector /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/ceval.c:2172:12
+    #12 0x5e074989c3ef in _PyObject_VectorcallTstate /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/internal/pycore_call.h:144:11
+    #13 0x5e07498a230e in _PyObject_VectorcallPrepend /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Objects/call.c:855:20
+    #14 0x5e0749d542b2 in _PyObject_VectorcallTstate /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/internal/pycore_call.h:144:11
+    #15 0x5e0749d542b2 in context_run /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/context.c:731:29
+    #16 0x5e07498cdb7b in method_vectorcall_FASTCALL_KEYWORDS /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Objects/descrobject.c:421:24
+    #17 0x5e074989c3ef in _PyObject_VectorcallTstate /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/internal/pycore_call.h:144:11
+    #18 0x5e0749c88c39 in _Py_VectorCallInstrumentation_StackRefSteal /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/ceval.c:768:11
+    #19 0x5e0749cc96d3 in _PyEval_EvalFrameDefault /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/generated_cases.c.h:1906:35
+    #20 0x5e0749c87ad3 in _PyEval_EvalFrame /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/internal/pycore_ceval.h:122:16
+    #21 0x5e0749c87ad3 in _PyEval_Vector /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/ceval.c:2172:12
+    #22 0x5e074989c3ef in _PyObject_VectorcallTstate /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/internal/pycore_call.h:144:11
+    #23 0x5e07498a230e in _PyObject_VectorcallPrepend /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Objects/call.c:855:20
+    #24 0x5e074989eba1 in _PyVectorcall_Call /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Objects/call.c:273:16
+    #25 0x5e074a0be478 in thread_run /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Modules/_threadmodule.c:388:21
+    #26 0x5e0749eff1b5 in pythread_wrapper /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/thread_pthread.h:234:5
+    #27 0x5e074967236a in asan_thread_start(void*) asan_interceptors.cpp.o
+    #28 0x7b714c6a40d9 in start_thread nptl/pthread_create.c:454:8
+    #29 0x7b714c7377ab in __GI___clone3 misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78
+
+==2686388==Register values:
+rax = 0x00000000000000b8  rbx = 0x0000000000000000  rcx = 0x000000000000001f  rdx = 0x0000000000000021  
+rdi = 0x0000000000000018  rsi = 0x00007771495fbbb0  rbp = 0x00007771495fbb10  rsp = 0x00007771495fbab0  
+ r8 = 0x00000eee292bfed5   r9 = 0x000077710a4c63d0  r10 = 0x0000000000000000  r11 = 0x0000000000000002  
+r12 = 0x00000eee21498c85  r13 = 0x000077710a4c6428  r14 = 0x00007771495fbbb0  r15 = 0x0000000000000002  
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/object.h:755:19 in PyType_HasFeature
+Thread T1 created by T0 here:
+    #0 0x5e0749658c35 in pthread_create (/home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/python+0x33ec35) (BuildId: 7ce04eb34eefa849f1238b4eaa30cefc5a9ae9b8)
+    #1 0x5e0749efd535 in do_start_joinable_thread /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/thread_pthread.h:281:14
+    #2 0x5e0749efd1a5 in PyThread_start_joinable_thread /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/thread_pthread.h:323:9
+    #3 0x5e074a0bd946 in ThreadHandle_start /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Modules/_threadmodule.c:475:9
+    #4 0x5e074a0bd946 in do_start_new_thread /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Modules/_threadmodule.c:1919:9
+    #5 0x5e074a0bacf6 in thread_PyThread_start_joinable_thread /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Modules/_threadmodule.c:2042:14
+    #6 0x5e07499ee09e in cfunction_call /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Objects/methodobject.c:564:18
+    #7 0x5e074989cf0d in _PyObject_MakeTpCall /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Objects/call.c:242:18
+    #8 0x5e0749c88c39 in _Py_VectorCallInstrumentation_StackRefSteal /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/ceval.c:768:11
+    #9 0x5e0749cc4838 in _PyEval_EvalFrameDefault /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/generated_cases.c.h:3474:35
+    #10 0x5e0749c87ad3 in _PyEval_EvalFrame /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/./Include/internal/pycore_ceval.h:122:16
+    #11 0x5e0749c87ad3 in _PyEval_Vector /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/ceval.c:2172:12
+    #12 0x5e0749c86eaa in PyEval_EvalCode /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/ceval.c:679:21
+    #13 0x5e0749eb44cf in run_eval_code_obj /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/pythonrun.c:1406:12
+    #14 0x5e0749eb3b51 in run_mod /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/pythonrun.c:1509:19
+    #15 0x5e0749ead914 in _PyRun_File /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/pythonrun.c:1332:15
+    #16 0x5e0749eab190 in _PyRun_SimpleFile /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/pythonrun.c:544:15
+    #17 0x5e0749eaa5c0 in _PyRun_AnyFile /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Python/pythonrun.c:92:18
+    #18 0x5e0749f31b73 in pymain_run_file_obj /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Modules/main.c:478:24
+    #19 0x5e0749f31b73 in pymain_run_file /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Modules/main.c:494:20
+    #20 0x5e0749f30224 in pymain_run_python /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Modules/main.c:804:21
+    #21 0x5e0749f30224 in Py_RunMain /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Modules/main.c:891:5
+    #22 0x5e0749f3119f in pymain_main /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Modules/main.c:921:12
+    #23 0x5e0749f31317 in Py_BytesMain /home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/Modules/main.c:945:12
+    #24 0x7b714c62a600 in __libc_start_call_main csu/../sysdeps/nptl/libc_start_call_main.h:59:16
+    #25 0x7b714c62a717 in __libc_start_main csu/../csu/libc-start.c:360:3
+    #26 0x5e07495cf544 in _start (/home/danzin/projects/python_build_matrix/builds/debug-ft-nojit-asan/python+0x2b5544) (BuildId: 7ce04eb34eefa849f1238b4eaa30cefc5a9ae9b8)
+
+==2686388==ABORTING
+/bin/bash: line 3: 2686387 Aborted                    (core dumped) PYTHON_GIL=0 DEBUGINFOD_URLS= ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:halt_on_error=1 timeout 90 "$DASAN" -u "$1" 2>&1
