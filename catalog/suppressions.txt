@@ -117,3 +117,7 @@ Objects/obmalloc\.c:PyMem_(Set|Get)Allocator
 # FT subinterpreter machinery -- out of scope per cpython#143232 (don't file FT-subinterp races).
 # new_interpreter racing _PyInterpreterState_IsReady during concurrent interpreter creation.
 Python/pylifecycle.c:new_interpreter \| Python/pystate.c:_PyInterpreterState_IsReady
+# magalu_tsan 2026-07-23: subinterpreter machinery -- out of scope per cpython#143232.
+# concurrent.futures.InterpreterPoolExecutor concurrent Py_NewInterpreterFromConfig ->
+# init_static_exctypes / type_ready_set_base racing static cross-interpreter exception-type init.
+Python/crossinterp_exceptions.h:init_static_exctypes

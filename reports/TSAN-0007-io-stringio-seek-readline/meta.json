@@ -7,7 +7,8 @@
     "Modules/_io/stringio.c:_io_StringIO_seek_impl | Modules/_io/stringio.c:_stringio_readline",
     "Modules/_io/stringio.c:_io_StringIO_close_impl | Modules/_io/stringio.c:stringio_iternext",
     "Modules/_io/stringio.c:realize | Modules/_io/stringio.c:realize",
-    "Modules/_io/stringio.c:_io_StringIO_read_impl | Modules/_io/stringio.c:_stringio_readline"
+    "Modules/_io/stringio.c:_io_StringIO_read_impl | Modules/_io/stringio.c:_stringio_readline",
+    "Modules/_io/stringio.c:_stringio_readline | Modules/_io/stringio.c:_stringio_readline"
   ],
   "sites": [
     "Modules/_io/stringio.c _io_StringIO_seek_impl:543 (write self->pos = pos; @critical_section held)",
@@ -30,18 +31,18 @@
     "inst-04/python/email_parser-warning_threadsanitizer_data_race-tsanNEW"
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, BuildId 210f4dee1678f3b37d4df3e6b4d2f870b5f45e9c)",
-  "notes": "Real FT-safety gap, not 'don't share this object' user error: CPython deliberately @critical_section-annotated every StringIO method to make concurrent use data-race-free, and the tp_iternext slot was simply overlooked. Fleet seed caught the read/write variant (_stringio_readline:365 vs seek:543); the minimized repro caught the write/write variant (_stringio_readline:383 vs seek:543) -- same self->pos field, same two functions. Audit other _io types / any @critical_section-hardened type for hand-written slots (tp_iternext etc.) that bypass the section.",
+  "notes": "Real FT-safety gap, not 'don't share this object' user error: CPython deliberately @critical_section-annotated every StringIO method to make concurrent use data-race-free, and the tp_iternext slot was simply overlooked. Fleet seed caught the read/write variant (_stringio_readline:365 vs seek:543); the minimized repro caught the write/write variant (_stringio_readline:383 vs seek:543) -- same self->pos field, same two functions. Audit other _io types / any @critical_section-hardened type for hand-written slots (tp_iternext etc.) that bypass the section. magalu_tsan 2026-07-23: added the readline-vs-readline face (two concurrent StringIO.readline() calls racing self->pos/buffer), found via the email_iterators session; same root as the seek/read faces.",
   "related_issues": [
     {
       "num": 153296,
-      "note": "Use-after-free with concurrent stringio_iternext \u2014 same bug"
+      "note": "Use-after-free with concurrent stringio_iternext — same bug"
     },
     {
       "num": 153368,
-      "note": "PR wraps stringio_iternext in Py_BEGIN_CRITICAL_SECTION \u2014 exactly the fix"
+      "note": "PR wraps stringio_iternext in Py_BEGIN_CRITICAL_SECTION — exactly the fix"
     }
   ],
-  "assessment": "DUPLICATE of upstream #153296 (fix in PR #153368) \u2014 already reported",
+  "assessment": "DUPLICATE of upstream #153296 (fix in PR #153368) — already reported",
   "fleet02_notes": [
     "fleet-02: additional signature face(s) folded in: Modules/_io/stringio.c:_io_StringIO_close_impl | Modules/_io/stringio.c:stringio_iternext; Modules/_io/stringio.c:realize | Modules/_io/stringio.c:realize"
   ]

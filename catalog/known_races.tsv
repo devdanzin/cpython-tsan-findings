@@ -24,6 +24,7 @@ TSAN-0006	SEGV Objects/object.c:PyObject_Repr
 TSAN-0007	Modules/_io/stringio.c:_io_StringIO_close_impl | Modules/_io/stringio.c:stringio_iternext
 TSAN-0007	Modules/_io/stringio.c:_io_StringIO_read_impl | Modules/_io/stringio.c:_stringio_readline
 TSAN-0007	Modules/_io/stringio.c:_io_StringIO_seek_impl | Modules/_io/stringio.c:_stringio_readline
+TSAN-0007	Modules/_io/stringio.c:_stringio_readline | Modules/_io/stringio.c:_stringio_readline
 TSAN-0007	Modules/_io/stringio.c:realize | Modules/_io/stringio.c:realize
 TSAN-0008	Modules/_lsprof.c:Stop | Modules/_lsprof.c:Stop
 TSAN-0008	Modules/_lsprof.c:Stop | Modules/_lsprof.c:flush_unmatched

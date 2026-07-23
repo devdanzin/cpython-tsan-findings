@@ -23,8 +23,8 @@
   "repro": "repro.py",
   "repro_reliability": "high: 6/6 SIGSEGV on plain debug-ft-nojit (no sanitizer), 4/4 abort on debug-ft-nojit-asan (SEGV), exit-66 TSan data race on debug-ft-nojit-tsan, at NT=8 threads / ITERS=40000. 8 threads share one iter(ctx) over a 16-var Context, refilled on exhaustion.",
   "suggested_fix": "Bring the HAMT iterator advance (hamt_iterator_next -> hamt_iterator_bitmap_next / hamt_iterator_array_next descent) under a per-iterator critical section, or make the i_level/i_pos/i_nodes cursor accesses atomic with a bounds/NULL check on the borrowed i_nodes[i_level] before dereferencing -- matching the dictiter/setiter hardening. Minimal change to satisfy gh-124397's must-not-crash contract (duplicate/skipped entries acceptable). The guard must span the whole descent because i_nodes holds borrowed pointers.",
-  "status": "reported-pending",
-  "upstream_issue": null,
+  "status": "reported",
+  "upstream_issue": 154535,
   "found_date": "2026-07-23",
   "found_in": "magalu_tsan (cloud --tsan fleet; session contextvars-warning_threadsanitizer_data_race-tsanNEW)",
   "vehicles": [
@@ -34,8 +34,17 @@
   "confirmed_unfixed_on": "heads/main:a1d580430c8 (Jul 18 2026)",
   "notes": "Part of the gh-124397 shared-iterator-must-not-crash family. The HAMT iterator is the contextvars.Context iterator; unlike dictiter/setiter (already hardened with critical sections) it takes no critical section at all. Open hamt issues #148891 (crash in HAMT during GC) and #150178 (refcount leaks in hamt allocation failure) are unrelated (GC / alloc-failure, not concurrent iteration). Distinct from #149816's 22 races (different modules). Novelty verified with `gh api -X GET search/issues` (not `gh search`, which under-reports multi-word queries): no issue references hamt_iterator / Context-iterator concurrency.",
   "related_issues": [
-    {"num": 124397, "note": "Umbrella: 'Strategy for Iterators in Free Threading'. Point 3 sets the must-not-crash contract this violates. Iterator-hardening tracker PR #148894."},
-    {"num": 154130, "note": "Sibling: dict iterator double-DECREF (TSAN-0053). Same shared-iterator-crash class, already filed."},
-    {"num": 144357, "note": "Sibling: set iterator (TSAN-0054), already fixed/tracked."}
+    {
+      "num": 124397,
+      "note": "Umbrella: 'Strategy for Iterators in Free Threading'. Point 3 sets the must-not-crash contract this violates. Iterator-hardening tracker PR #148894."
+    },
+    {
+      "num": 154130,
+      "note": "Sibling: dict iterator double-DECREF (TSAN-0053). Same shared-iterator-crash class, already filed."
+    },
+    {
+      "num": 144357,
+      "note": "Sibling: set iterator (TSAN-0054), already fixed/tracked."
+    }
   ]
 }
