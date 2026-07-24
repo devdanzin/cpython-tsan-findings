@@ -232,7 +232,7 @@ completed work**, not a new finding.
 
 | session | verdict |
 |---------|---------|
-| `_elementtree` + `xml_etree_cElementTree` | **NEW → TSAN-0058.** Shared `Element` mutate/read (`clear_extra`/`create_extra`/`dealloc_extra`/`element_add_subelement`/`_set_joined_ptr` vs `element_length`/`element_get_tail`) — module is `Py_MOD_GIL_NOT_USED` with no critical sections → child-refcount corruption → **`element_dealloc` `Py_REFCNT==0` abort, 5/5**. Element-side companion of TSAN-0031 (TreeBuilder). Filable (memory-safety). |
+| `_elementtree` + `xml_etree_cElementTree` | **KNOWN → TSAN-0058 = cpython#146022.** Shared `Element` mutate/read (`clear_extra`/`create_extra`/`dealloc_extra`/`element_add_subelement`/`_set_joined_ptr` vs `element_length`/`element_get_tail`) — module is `Py_MOD_GIL_NOT_USED` with no critical sections → child-refcount corruption → **`element_dealloc` `Py_REFCNT==0` abort, 5/5**. Element-side companion of TSAN-0031 (TreeBuilder). **Prior art: cpython#146022** ('Make Element usable on free-threaded builds' — describes this exact clear-vs-read crash) + #149816 items 69/87 (fix PR #149918). NOT a new filing; corroborates #146022. |
 | `string_templatelib` | **KNOWN → TSAN-0052** (t-string `templateiter_next` `from_strings`-flag race). Value-benign (0/5 crash, gh-124397 "may dup/skip" is allowed). Added the `templateiter_next\|builtin_next` top-frame variant. |
 | `shlex` | **KNOWN → TSAN-0007** (StringIO `self->pos`/buffer unlocked, cpython#153296). |
 | `_android_support` | **KNOWN → cpython#154523** (`TextIOWrapper.detach()` buffer slot). Value-benign on aligned hw (verified earlier); already filed. Suppressed. |

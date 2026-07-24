@@ -28,8 +28,8 @@
   "repro": "repro.py",
   "repro_reliability": "high: 5/5 crash on debug-ft-nojit and debug-ft-nojit-asan (element_dealloc Py_REFCNT==0 abort), exit-66 TSan data race on debug-ft-nojit-tsan (element_length / _set_joined_ptr / create_extra / clear_extra pairings). NT=8 threads, half clear()+SubElement (writers), half len()+tail read (readers), on one shared Element.",
   "suggested_fix": "Take the Element's per-object critical section on the Element mutators and readers (clear/append/subelement/resize/tail-set and len/tail-get/iterate), matching the free-threading hardening the rest of the module needs. Part of the broader _elementtree FT-safety gap (module declares Py_MOD_GIL_NOT_USED with no critical sections); the abandoned PR gh-145569 only covered TreeBuilder.handle_end.",
-  "status": "reported-pending",
-  "upstream_issue": null,
+  "status": "reported",
+  "upstream_issue": 146022,
   "found_date": "2026-07-24",
   "found_in": "magalu_tsan (cloud --tsan fleet; sessions _elementtree + xml_etree_cElementTree)",
   "vehicles": [
@@ -38,10 +38,27 @@
   ],
   "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:a1d580430c8). Crash reproduced on debug-ft-nojit and debug-ft-nojit-asan at the same commit. Original fleet build /home/ubuntu/projects/3.16_ft_debug_tsan.",
   "confirmed_unfixed_on": "heads/main:a1d580430c8 (Jul 18 2026)",
-  "notes": "Element-side companion to TSAN-0031 (TreeBuilder). _elementtree is on the gh-116738 audit list and named in #149816; the whole module declares Py_MOD_GIL_NOT_USED with no critical sections. Scope: concurrent MUTATION of a shared Element (like multidict / the shared-Pickler TSAN-0057) -- maintainers may weigh how far to take Element FT-safety, but the crash is memory-safety (premature free), and read-while-one-writer is a plausible pattern for a shared parsed tree. Distinct from TSAN-0031's TreeBuilder parse-state data race (no crash). Not filed yet.",
+  "notes": "KNOWN — maps to cpython#146022 (the 'make Element FT-safe' umbrella, which describes this exact clear-vs-read crash) + #149816 items 69/87 (fix PR #149918 in flight). NOT a new filing; our repro corroborates #146022. Element-side companion of TSAN-0031 (TreeBuilder). Whole module is Py_MOD_GIL_NOT_USED with zero critical sections (gh-116738 audit). Prior-art searched 2026-07-24 via gh api. Optional: add the 5/5 element_dealloc-abort repro as a corroborating comment on #146022.",
   "related_issues": [
-    {"num": 149816, "note": "'22 free-threading race conditions' names _elementtree among its modules -- check whether the Element (not TreeBuilder) mutate/read races are covered before filing."},
-    {"num": 116738, "note": "'Audit all built-in modules for thread safety' -- _elementtree on the list."},
-    {"num": 145569, "note": "Abandoned PR that only added a critical section to TreeBuilder.handle_end; the module-wide gap (incl. Element) remains."}
+    {
+      "num": 146022,
+      "note": "OPEN umbrella 'Make xml.etree.ElementTree.Element usable on free-threaded builds' (@sampsonc). Describes THIS exact crash: '_elementtree.c declares Py_MOD_GIL_NOT_USED but has zero @critical_section; element_getitem checks self->extra!=NULL then derefs children[index] with no lock; concurrent elem.clear() sets self->extra=NULL and frees the children array -> crash.' Our repro is a reproducer for it."
+    },
+    {
+      "num": 149816,
+      "note": "'22 free-threading race conditions' — item (69) 'Unsynchronized extra pointer dereference in len' = our element_length race; item (87) 'Unsynchronized Element.text borrowed-pointer race' = our tail race."
+    },
+    {
+      "num": 149918,
+      "note": "OPEN PR (gh-149816) fixing item 69 (len/extra deref) + attrib race."
+    },
+    {
+      "num": 153852,
+      "note": "TSAN-0031 (our TreeBuilder side) lives in this umbrella; same module-no-locking root."
+    },
+    {
+      "num": 145568,
+      "note": "gh-145568/PR gh-145569 (abandoned) — only added a critical section to TreeBuilder.handle_end."
+    }
   ]
 }

@@ -51,9 +51,10 @@ Concurrent **mutation** of a shared `Element` (the "shared mutable object with n
 yet has zero critical sections, so even a single writer racing a reader of a shared parsed tree — a
 plausible pattern — corrupts memory. `_elementtree` is on the gh-116738 audit list and named in
 cpython#149816; the abandoned PR gh-145569 only touched `TreeBuilder.handle_end`. Distinct from
-TSAN-0031, which is the `TreeBuilder` feed data race (no crash). How far to take `Element` FT-safety
-is a maintainer call, but the manifestation here is memory-unsafety (premature free), not just
-undefined tree contents.
+TSAN-0031, which is the `TreeBuilder` feed data race (no crash). This is already tracked upstream: **cpython#146022** ('Make `xml.etree.ElementTree.Element` usable on
+free-threaded builds') describes the exact `clear()`-vs-read crash, and #149816 items (69) 'len/extra
+deref' and (87) 'Element.text race' with fix PR #149918 cover the specific sub-races. This repro is a
+corroborating reproducer for #146022 — not a new filing.
 
 ## Suggested fix
 
