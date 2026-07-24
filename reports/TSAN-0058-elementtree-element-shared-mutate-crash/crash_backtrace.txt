@@ -1,0 +1,9 @@
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==3416988==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x798adcf6f575 bp 0x758a99ffbb50 sp 0x758a99ffbb20 T1)
+==3416988==The signal is caused by a READ memory access.
+==3416988==Hint: address points to the zero page.
+AddressSanitizer:DEADLYSIGNAL
+AddressSanitizer:DEADLYSIGNAL
+python: ./Modules/_elementtree.c:704: void element_dealloc(PyObject *): Assertion `Py_REFCNT(op) == 0' failed.
+LLVM ERROR: IO failure on output stream: Broken pipe

@@ -227,3 +227,14 @@ completed work**, not a new finding.
 - `email_iterators` → **TSAN-0007** (StringIO `self->pos`/buffer unlocked, cpython#153296) — new *readline-vs-readline* face (`_stringio_readline | _stringio_readline`) folded into TSAN-0007's signatures.
 - `concurrent_futures_interpreter` → **subinterpreter machinery, out of scope per cpython#143232** (concurrent `Py_NewInterpreterFromConfig` via `InterpreterPoolExecutor` → `init_static_exctypes`/`type_ready_set_base`/`_PyExc_InitTypes` racing static exc-type init). 4 pairings already suppressed; the 2 `crossinterp_exceptions.h:init_static_exctypes` pairings added to `suppressions.txt`.
 - TSAN-0056 (contextvars/HAMT) **FILED → cpython#154535**.
+
+## magalu_tsan batch 3 (2026-07-24, 8 sessions) — 1 new crasher (TSAN-0058), rest known/benign/borderline
+
+| session | verdict |
+|---------|---------|
+| `_elementtree` + `xml_etree_cElementTree` | **NEW → TSAN-0058.** Shared `Element` mutate/read (`clear_extra`/`create_extra`/`dealloc_extra`/`element_add_subelement`/`_set_joined_ptr` vs `element_length`/`element_get_tail`) — module is `Py_MOD_GIL_NOT_USED` with no critical sections → child-refcount corruption → **`element_dealloc` `Py_REFCNT==0` abort, 5/5**. Element-side companion of TSAN-0031 (TreeBuilder). Filable (memory-safety). |
+| `string_templatelib` | **KNOWN → TSAN-0052** (t-string `templateiter_next` `from_strings`-flag race). Value-benign (0/5 crash, gh-124397 "may dup/skip" is allowed). Added the `templateiter_next\|builtin_next` top-frame variant. |
+| `shlex` | **KNOWN → TSAN-0007** (StringIO `self->pos`/buffer unlocked, cpython#153296). |
+| `_android_support` | **KNOWN → cpython#154523** (`TextIOWrapper.detach()` buffer slot). Value-benign on aligned hw (verified earlier); already filed. Suppressed. |
+| `socket` (`sock_initobj_impl\|socket_close`) + `mailbox` (`_io_FileIO___init___impl\|internal_close`) | **Borderline / not minted.** Concurrent re-`__init__` of a shared socket/FileIO racing `close` — fd-lifecycle races (FileIO side is the TSAN-0024 / cpython#151707 family; socket is the analogue). Re-initialising a live shared object is unusual; left documented, uncataloged. |
+| `_colorize` | **Low-confidence / not minted.** Primary = `new_dict_impl \| _Py_atomic_load_ssize_relaxed` (dict-internal) with a secondary `SEGV _PyObject_GenericGetAttrWithDict` (only-via-multi-race) from concurrent attr churn on a weird-subclass instance; did NOT reproduce from plain shared-object attr churn (0/5). Needs the vehicle to pin. |

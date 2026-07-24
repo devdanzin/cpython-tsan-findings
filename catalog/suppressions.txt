@@ -121,3 +121,7 @@ Python/pylifecycle.c:new_interpreter \| Python/pystate.c:_PyInterpreterState_IsR
 # concurrent.futures.InterpreterPoolExecutor concurrent Py_NewInterpreterFromConfig ->
 # init_static_exctypes / type_ready_set_base racing static cross-interpreter exception-type init.
 Python/crossinterp_exceptions.h:init_static_exctypes
+# magalu_tsan 2026-07-24: TextIOWrapper.detach() buffer-slot race -- value-benign on aligned hardware
+# (plain store `self->buffer=NULL` vs atomic LOAD_ATTR_SLOT load; detach transfers ownership, no DECREF,
+# reader try-increfs safely). Already filed upstream as cpython#154523. Not memory-unsafe; suppress.
+Modules/_io/textio.c:_io_TextIOWrapper_detach_impl

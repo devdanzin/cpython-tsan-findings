@@ -1,0 +1,47 @@
+{
+  "id": "TSAN-0058",
+  "slug": "elementtree-element-shared-mutate-crash",
+  "title": "_elementtree.Element: concurrent mutate/read of a shared Element (clear/subelement/tail vs len/tail/iter) corrupts child refcounts with no critical section -> element_dealloc abort (Py_REFCNT==0)",
+  "description": "Modules/_elementtree.c declares Py_MOD_GIL_NOT_USED but takes NO critical sections on Element operations. A shared Element's `extra` struct (its children array + text/tail) is created/grown/cleared/freed by create_extra / element_add_subelement / element_resize / clear_extra / dealloc_extra / _set_joined_ptr and read by element_length / element_get_tail / element iteration -- all unsynchronized. Concurrent Element.clear() / SubElement() (writers) racing len(el) / el.tail / iter(el) (readers) on one shared Element corrupt the child PyObject* refcounts, so a child (or the Element) is freed while still referenced -> element_dealloc (Modules/_elementtree.c:704) aborts on `assert(Py_REFCNT(op) == 0)` (premature free / double-DECREF). Same root as TSAN-0031 (the TreeBuilder feed race) -- the whole module lacks locking -- but this is the Element-object side and it CRASHES (memory-safety), where TSAN-0031 is the parse-state data race.",
+  "signatures": [
+    "Modules/_elementtree.c:clear_extra | Modules/_elementtree.c:element_length",
+    "Modules/_elementtree.c:_set_joined_ptr | Modules/_elementtree.c:element_get_tail",
+    "Modules/_elementtree.c:_set_joined_ptr | Modules/_elementtree.c:_set_joined_ptr",
+    "Modules/_elementtree.c:clear_extra | Modules/_elementtree.c:create_extra",
+    "Modules/_elementtree.c:create_extra | Modules/_elementtree.c:dealloc_extra",
+    "Modules/_elementtree.c:create_extra | Modules/_elementtree.c:element_length",
+    "Modules/_elementtree.c:dealloc_extra | Modules/_elementtree.c:element_add_subelement",
+    "Modules/_elementtree.c:element_add_subelement | Modules/_elementtree.c:element_length"
+  ],
+  "crash_signature": "_elementtree.c:704 element_dealloc Py_REFCNT(op)==0 (element/child premature free)",
+  "sites": [
+    "Modules/_elementtree.c element_dealloc:704 (the aborting assert Py_REFCNT(op)==0)",
+    "Modules/_elementtree.c create_extra / clear_extra / dealloc_extra (the Element `extra` struct: children array + lifecycle, no lock)",
+    "Modules/_elementtree.c element_add_subelement / element_resize (grow the children array)",
+    "Modules/_elementtree.c element_length:1628 (reads self->extra->length unlocked)",
+    "Modules/_elementtree.c element_get_tail / _set_joined_ptr (tail/text read vs write, unlocked)"
+  ],
+  "race_kind": "shared mutable object (Element `extra`/children/tail) with no critical section; concurrent mutate (clear/subelement/tail) vs read (len/tail/iter) -> child refcount corruption -> element_dealloc abort / premature free. TSan data-race stanzas AND a crash face.",
+  "shared_state": "one _elementtree.Element's `extra` struct: its children PyObject* array (and length), and its text/tail pointers, mutated and read concurrently by multiple threads with no synchronization",
+  "severity": "HIGH (memory-safety). Concurrent access to a shared Element corrupts child refcounts -> premature free; element_dealloc's Py_REFCNT==0 assert catches it. The module opts out of the GIL (Py_MOD_GIL_NOT_USED) but has zero critical sections. Scope caveat: this is concurrent MUTATION of a shared Element; concurrent READ of an immutable shared tree is the common case, but a reader racing one writer already crashes here.",
+  "reproduced": true,
+  "repro": "repro.py",
+  "repro_reliability": "high: 5/5 crash on debug-ft-nojit and debug-ft-nojit-asan (element_dealloc Py_REFCNT==0 abort), exit-66 TSan data race on debug-ft-nojit-tsan (element_length / _set_joined_ptr / create_extra / clear_extra pairings). NT=8 threads, half clear()+SubElement (writers), half len()+tail read (readers), on one shared Element.",
+  "suggested_fix": "Take the Element's per-object critical section on the Element mutators and readers (clear/append/subelement/resize/tail-set and len/tail-get/iterate), matching the free-threading hardening the rest of the module needs. Part of the broader _elementtree FT-safety gap (module declares Py_MOD_GIL_NOT_USED with no critical sections); the abandoned PR gh-145569 only covered TreeBuilder.handle_end.",
+  "status": "reported-pending",
+  "upstream_issue": null,
+  "found_date": "2026-07-24",
+  "found_in": "magalu_tsan (cloud --tsan fleet; sessions _elementtree + xml_etree_cElementTree)",
+  "vehicles": [
+    "magalu_tsan/_elementtree-warning_threadsanitizer_data_race-tsanNEW",
+    "magalu_tsan/xml_etree_cElementTree-warning_threadsanitizer_data_race-tsanNEW"
+  ],
+  "confirmed_build": "python_build_matrix/builds/debug-ft-nojit-tsan (CPython 3.16.0a0, --disable-gil --with-thread-sanitizer, heads/main:a1d580430c8). Crash reproduced on debug-ft-nojit and debug-ft-nojit-asan at the same commit. Original fleet build /home/ubuntu/projects/3.16_ft_debug_tsan.",
+  "confirmed_unfixed_on": "heads/main:a1d580430c8 (Jul 18 2026)",
+  "notes": "Element-side companion to TSAN-0031 (TreeBuilder). _elementtree is on the gh-116738 audit list and named in #149816; the whole module declares Py_MOD_GIL_NOT_USED with no critical sections. Scope: concurrent MUTATION of a shared Element (like multidict / the shared-Pickler TSAN-0057) -- maintainers may weigh how far to take Element FT-safety, but the crash is memory-safety (premature free), and read-while-one-writer is a plausible pattern for a shared parsed tree. Distinct from TSAN-0031's TreeBuilder parse-state data race (no crash). Not filed yet.",
+  "related_issues": [
+    {"num": 149816, "note": "'22 free-threading race conditions' names _elementtree among its modules -- check whether the Element (not TreeBuilder) mutate/read races are covered before filing."},
+    {"num": 116738, "note": "'Audit all built-in modules for thread safety' -- _elementtree on the list."},
+    {"num": 145569, "note": "Abandoned PR that only added a critical section to TreeBuilder.handle_end; the module-wide gap (incl. Element) remains."}
+  ]
+}
